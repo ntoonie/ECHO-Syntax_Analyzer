@@ -255,3 +255,4 @@ export default function tokenizeWithIndent(input, keywordsMap = {}) {
   push({ type: 'EOF', lexeme: '<EOF>' });
   return tokens;
 }
+

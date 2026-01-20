@@ -1,5 +1,5 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
-import { PlayCircle, Trash2, FileText, Sun, Moon, Upload } from 'lucide-react';
+import { PlayCircle, Trash2, FileText, Sun, Moon, Upload, Download } from 'lucide-react';
 // eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
 import logo from "../src/LOGO.svg";
@@ -746,6 +746,26 @@ END`;
     setUploadedSample(null);
   };
 
+  // Exports tokens as a .echo file with token stream format
+  const handleExportTokens = () => {
+    if (tokens.length === 0) return;
+
+    // Generate JSON array with type + lexeme (and line for completeness)
+    const payload = tokens.map(({ type, lexeme, line }) => ({ type, lexeme, line }));
+    const content = JSON.stringify(payload, null, 2);
+
+    // Create blob and download
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'token_stream_with_lexemes.echo';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // Handles file upload and loads the file content into source code
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
@@ -901,9 +921,19 @@ END`;
             animate={{ opacity: 1, y: 0 }}
             className="bg-white/70 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-xl border border-white/30 dark:border-slate-700 flex flex-col"
           >
-            <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
-              Token Analysis Results
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-200">
+                Token Analysis Results
+              </h2>
+              <button
+                onClick={handleExportTokens}
+                disabled={tokens.length === 0}
+                className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors text-sm"
+              >
+                <Download size={16} />
+                <span>Export</span>
+              </button>
+            </div>
 
              <div className="h-[500px] sm:h-[520px] overflow-auto rounded-xl bg-transparent text-slate-900 dark:text-slate-50 p-4 font-mono text-sm border border-slate-700 shadow-inner">
               {tokens.length === 0 ? (
