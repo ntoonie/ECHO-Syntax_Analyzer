@@ -1,0 +1,260 @@
+/**
+ * =========================================
+ * Unified Token Types - ECHO Language
+ * =========================================
+ * 
+ * Shared token definitions for both Lexical and Syntax analyzers
+ * Aligned with FORMAL_GRAMMAR.md specifications
+ */
+
+export const TOKEN_TYPES = {
+  // Program Structure Keywords
+  KEYWORD_START: 'KW_START',
+  KEYWORD_END: 'KW_END',
+  KEYWORD_ECHO: 'KW_ECHO',
+  KEYWORD_INPUT: 'KW_INPUT',
+  KEYWORD_FUNCTION: 'KW_FUNCTION',
+  
+  // Data Type Keywords
+  KEYWORD_NUMBER: 'KW_NUMBER',
+  KEYWORD_DECIMAL: 'KW_DECIMAL',
+  KEYWORD_STRING: 'KW_STRING',
+  KEYWORD_BOOLEAN: 'KW_BOOLEAN',
+  KEYWORD_LIST: 'KW_LIST',
+  
+  // Loop Keywords
+  KEYWORD_FOR: 'KW_FOR',
+  KEYWORD_WHILE: 'KW_WHILE',
+  KEYWORD_DO: 'KW_DO',
+  
+  // Conditional Keywords
+  KEYWORD_IF: 'KW_IF',
+  KEYWORD_ELSE: 'KW_ELSE',
+  KEYWORD_SWITCH: 'KW_SWITCH',
+  KEYWORD_CASE: 'KW_CASE',
+  KEYWORD_DEFAULT: 'KW_DEFAULT',
+  
+  // Reserved Words
+  RESERVED_NULL: 'RW_NULL',
+  RESERVED_TRUE: 'RW_TRUE',
+  RESERVED_FALSE: 'RW_FALSE',
+  RESERVED_CONTINUE: 'RW_CONTINUE',
+  RESERVED_BREAK: 'RW_BREAK',
+  RESERVED_RETURN: 'RW_RETURN',
+  RESERVED_NEW: 'RW_NEW',
+  RESERVED_THIS: 'RW_THIS',
+  RESERVED_VOID: 'RW_VOID',
+  RESERVED_AT: 'RW_AT',
+  RESERVED_DATA: 'RW_DATA',
+  RESERVED_STRUCT: 'RW_STRUCT',
+  
+  // Built-in Function Names
+  BUILTIN_SUM: 'BUILTIN_SUM',
+  BUILTIN_MEDIAN: 'BUILTIN_MEDIAN',
+  BUILTIN_MODE: 'BUILTIN_MODE',
+  BUILTIN_AVERAGE: 'BUILTIN_AVERAGE',
+  BUILTIN_ISEVEN: 'BUILTIN_ISEVEN',
+  BUILTIN_ISODD: 'BUILTIN_ISODD',
+  
+  // Noise Words
+  NOISE_WITH: 'NW_WITH',
+  NOISE_TO: 'NW_TO',
+  NOISE_BY: 'NW_BY',
+  
+  // Identifiers and Literals
+  IDENTIFIER: 'ID',
+  NUMBER_LITERAL: 'NUM_LITERAL',
+  DECIMAL_LITERAL: 'DEC_LITERAL',
+  STRING_LITERAL: 'STR_LITERAL',
+  BOOLEAN_LITERAL: 'BOOL_LITERAL',
+  LIST_LITERAL: 'LIT_LIST',
+  NULL_LITERAL: 'LIT_NULL',
+  
+  // Operators - Assignment
+  OP_ASSIGN: 'OP_ASSIGN',
+  OP_ADD_ASSIGN: 'OP_ADD_ASSIGN',
+  OP_SUB_ASSIGN: 'OP_SUB_ASSIGN',
+  OP_MUL_ASSIGN: 'OP_MUL_ASSIGN',
+  OP_DIV_ASSIGN: 'OP_DIV_ASSIGN',
+  OP_MOD_ASSIGN: 'OP_MOD_ASSIGN',
+  
+  // Operators - Arithmetic
+  OP_ADD: 'OP_ADD',
+  OP_SUB: 'OP_SUB',
+  OP_MUL: 'OP_MUL',
+  OP_DIV: 'OP_DIV',
+  OP_INT_DIV: 'OP_INT_DIV',
+  OP_MOD: 'OP_MOD',
+  OP_EXP: 'OP_EXP',
+  
+  // Operators - Increment/Decrement
+  OP_INC: 'OP_INC',
+  OP_DEC: 'OP_DEC',
+  
+  // Operators - Comparison
+  OP_EQ: 'OP_EQ',
+  OP_NEQ: 'OP_NEQ',
+  OP_LT: 'OP_LT',
+  OP_GT: 'OP_GT',
+  OP_LTE: 'OP_LTE',
+  OP_GTE: 'OP_GTE',
+  
+  // Operators - Logical
+  OP_NOT: 'OP_NOT',
+  OP_AND: 'OP_AND',
+  OP_OR: 'OP_OR',
+  
+  // Delimiters
+  DEL_LPAREN: 'DEL_LPAREN',
+  DEL_RPAREN: 'DEL_RPAREN',
+  DEL_LBRACK: 'DEL_LBRACK',
+  DEL_RBRACK: 'DEL_RBRACK',
+  DEL_LBRACE: 'DEL_LBRACE',
+  DEL_RBRACE: 'DEL_RBRACE',
+  DEL_COMMA: 'DEL_COMMA',
+  DEL_PERIOD: 'DEL_PERIOD',
+  DEL_COLON: 'DEL_COLON',
+  DEL_SEMICOLON: 'DEL_SEMICOLON',
+  
+  // Special Characters
+  DEL_QUOTE: 'DEL_QUOTE',
+  DEL_UNDERSCORE: 'DEL_UNDERSCORE',
+  DEL_BACKSLASH: 'DEL_BACKSLASH',
+  
+  // Whitespace
+  WHITESPACE: 'WS',
+  
+  // String Insertion System
+  SIS_MARKER: 'SIS_MARKER',
+  
+  // Comments
+  COMMENT_SINGLE: 'COMMENT_SINGLE',
+  COMMENT_MULTI: 'COMMENT_MULTI',
+  
+  // Special
+  UNKNOWN: 'UNKNOWN',
+  ERROR: 'ERROR',
+};
+
+export const KEYWORDS = {
+  // Program Structure
+  start: TOKEN_TYPES.KEYWORD_START,
+  end: TOKEN_TYPES.KEYWORD_END,
+  echo: TOKEN_TYPES.KEYWORD_ECHO,
+  input: TOKEN_TYPES.KEYWORD_INPUT,
+  function: TOKEN_TYPES.KEYWORD_FUNCTION,
+  
+  // Data Types
+  number: TOKEN_TYPES.KEYWORD_NUMBER,
+  decimal: TOKEN_TYPES.KEYWORD_DECIMAL,
+  string: TOKEN_TYPES.KEYWORD_STRING,
+  boolean: TOKEN_TYPES.KEYWORD_BOOLEAN,
+  list: TOKEN_TYPES.KEYWORD_LIST,
+  
+  // Loops
+  for: TOKEN_TYPES.KEYWORD_FOR,
+  while: TOKEN_TYPES.KEYWORD_WHILE,
+  do: TOKEN_TYPES.KEYWORD_DO,
+  
+  // Conditionals
+  if: TOKEN_TYPES.KEYWORD_IF,
+  else: TOKEN_TYPES.KEYWORD_ELSE,
+  switch: TOKEN_TYPES.KEYWORD_SWITCH,
+  case: TOKEN_TYPES.KEYWORD_CASE,
+  default: TOKEN_TYPES.KEYWORD_DEFAULT,
+  
+  // Reserved Words
+  null: TOKEN_TYPES.RESERVED_NULL,
+  true: TOKEN_TYPES.RESERVED_TRUE,
+  false: TOKEN_TYPES.RESERVED_FALSE,
+  continue: TOKEN_TYPES.RESERVED_CONTINUE,
+  break: TOKEN_TYPES.RESERVED_BREAK,
+  return: TOKEN_TYPES.RESERVED_RETURN,
+  new: TOKEN_TYPES.RESERVED_NEW,
+  this: TOKEN_TYPES.RESERVED_THIS,
+  void: TOKEN_TYPES.RESERVED_VOID,
+  '@': TOKEN_TYPES.RESERVED_AT,
+  data: TOKEN_TYPES.RESERVED_DATA,
+  struct: TOKEN_TYPES.RESERVED_STRUCT,
+  
+  // Built-in Functions
+  sum: TOKEN_TYPES.BUILTIN_SUM,
+  median: TOKEN_TYPES.BUILTIN_MEDIAN,
+  mode: TOKEN_TYPES.BUILTIN_MODE,
+  average: TOKEN_TYPES.BUILTIN_AVERAGE,
+  isEven: TOKEN_TYPES.BUILTIN_ISEVEN,
+  isOdd: TOKEN_TYPES.BUILTIN_ISODD,
+  
+  // Noise Words
+  with: TOKEN_TYPES.NOISE_WITH,
+  to: TOKEN_TYPES.NOISE_TO,
+  by: TOKEN_TYPES.NOISE_BY,
+};
+
+export const OPERATORS = {
+  // Assignment
+  '=': TOKEN_TYPES.OP_ASSIGN,
+  '+=': TOKEN_TYPES.OP_ADD_ASSIGN,
+  '-=': TOKEN_TYPES.OP_SUB_ASSIGN,
+  '*=': TOKEN_TYPES.OP_MUL_ASSIGN,
+  '/=': TOKEN_TYPES.OP_DIV_ASSIGN,
+  '%=': TOKEN_TYPES.OP_MOD_ASSIGN,
+  
+  // Arithmetic
+  '+': TOKEN_TYPES.OP_ADD,
+  '-': TOKEN_TYPES.OP_SUB,
+  '*': TOKEN_TYPES.OP_MUL,
+  '/': TOKEN_TYPES.OP_DIV,
+  '//': TOKEN_TYPES.OP_INT_DIV,
+  '%': TOKEN_TYPES.OP_MOD,
+  '^': TOKEN_TYPES.OP_EXP,
+  
+  // Increment/Decrement
+  '++': TOKEN_TYPES.OP_INC,
+  '--': TOKEN_TYPES.OP_DEC,
+  
+  // Comparison
+  '==': TOKEN_TYPES.OP_EQ,
+  '!=': TOKEN_TYPES.OP_NEQ,
+  '<': TOKEN_TYPES.OP_LT,
+  '>': TOKEN_TYPES.OP_GT,
+  '<=': TOKEN_TYPES.OP_LTE,
+  '>=': TOKEN_TYPES.OP_GTE,
+  
+  // Logical
+  '!': TOKEN_TYPES.OP_NOT,
+  '&&': TOKEN_TYPES.OP_AND,
+  '||': TOKEN_TYPES.OP_OR,
+};
+
+export const DELIMITERS = {
+  '(': TOKEN_TYPES.DEL_LPAREN,
+  ')': TOKEN_TYPES.DEL_RPAREN,
+  '[': TOKEN_TYPES.DEL_LBRACK,
+  ']': TOKEN_TYPES.DEL_RBRACK,
+  '{': TOKEN_TYPES.DEL_LBRACE,
+  '}': TOKEN_TYPES.DEL_RBRACE,
+  ',': TOKEN_TYPES.DEL_COMMA,
+  '.': TOKEN_TYPES.DEL_PERIOD,
+  ';': TOKEN_TYPES.DEL_SEMICOLON,
+  '"': TOKEN_TYPES.DEL_QUOTE,
+  '_': TOKEN_TYPES.DEL_UNDERSCORE,
+  '\\': TOKEN_TYPES.DEL_BACKSLASH,
+};
+
+// Helper function to check if a token type is a data type
+export const isDataType = (tokenType) => {
+  return [
+    TOKEN_TYPES.KEYWORD_NUMBER,
+    TOKEN_TYPES.KEYWORD_DECIMAL,
+    TOKEN_TYPES.KEYWORD_STRING,
+    TOKEN_TYPES.KEYWORD_BOOLEAN,
+    TOKEN_TYPES.KEYWORD_LIST,
+    TOKEN_TYPES.RESERVED_VOID  // void is a valid return type for functions
+  ].includes(tokenType);
+};
+
+// Helper function to check if a token type is an operator
+export const isOperator = (tokenType) => {
+  return tokenType.startsWith('OP_');
+};
