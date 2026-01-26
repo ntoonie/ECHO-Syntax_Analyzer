@@ -179,7 +179,7 @@ const SyntaxAnalyzer = () => {
             </div>
 
             <div className="flex-1">
-              <div className="h-[600px] bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 p-4 font-mono overflow-auto leading-relaxed text-lg">
+              <div className="h-[600px] bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 p-4 font-mono overflow-auto leading-relaxed text-xs">
                 {activeTab === 'errors' && (
                   <div className="text-slate-900 dark:text-slate-50">
                     {errors.length === 0 ? (

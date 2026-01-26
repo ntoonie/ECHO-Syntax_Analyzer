@@ -111,11 +111,18 @@ export function parseTokenStream(tokenStream) {
       // Now expect start keyword
       startToken = eatToken('KW_START');
 
-      // Parse statements inside start block
-      while (
-        i < tokenTypes.length &&
-        !(peek() === 'KW_END' && !['KW_C', 'KW_L', 'KW_R', 'KW_P'].includes(peekNext()))
-      ) {
+      // Parse statements until we hit the program's closing "end"
+      // Stop when we see 'end' that's NOT part of a block closing (end if, end while, end for, end switch)
+      while (i < tokenTypes.length) {
+        // Check if this is the final program 'end'
+        if (peek() === 'KW_END') {
+          const nextType = peekNext();
+          // If next token is NOT a block keyword, this is the program end
+          if (!nextType || !['KW_C', 'KW_L'].includes(nextType)) {
+            break;
+          }
+        }
+        
         const stmt = parseStatement();
         if (stmt) decls.push(stmt);
       }
@@ -167,13 +174,6 @@ export function parseTokenStream(tokenStream) {
       return parseDeclaration();
     }
 
-    // Assignment (ID followed by assignment operator)
-    if (match('ID') && peekNext() === 'OP_ASG') {
-      const idToken = peekToken();
-      const varName = typeof idToken === 'object' ? idToken.lexeme : idToken;
-      throw new Error(`Undeclared variable '${varName}': use 'number ${varName} = value' to declare first, not just '${varName} = value'`);
-    }
-
     // Echo / Input / Function (KW_P)
     if (match('KW_P')) {
       if (lex === 'input') return parseInput();
@@ -206,6 +206,15 @@ export function parseTokenStream(tokenStream) {
       if (lex === 'continue') { advanceToken(); return { type: 'CONTINUE_STMT' }; }
       advanceToken();
       return null;
+    }
+
+    // Assignment must be checked before expression statement
+    if (match('ID')) {
+      const nextType = peekNext();
+      // Check if it's an assignment operator (including compound assignments like -=, +=, etc)
+      if (nextType === 'OP_ASG') {
+        return parseAssignment();
+      }
     }
 
     // Expression statement
@@ -329,8 +338,19 @@ export function parseTokenStream(tokenStream) {
     const groups = [];
     let current = [];
 
-    // Consume one or more expressions until we hit end or an unmatched token.
-    while (i < tokenTypes.length && !match('KW_END')) {
+    // Consume one or more expressions for echo arguments
+    while (i < tokenTypes.length) {
+      // Stop if we hit a statement keyword or end of block
+      if (match('KW_END', 'KW_T', 'KW_L', 'KW_C', 'KW_P', 'KW_R')) {
+        break;
+      }
+      
+      // Check if ID is start of assignment
+      if (match('ID')) {
+        const nextType = peekNext();
+        if (nextType === 'OP_ASG') break; // Assignment starts
+      }
+      
       const before = i;
       const expr = parseExpression();
       if (expr) current.push(expr);
@@ -343,8 +363,8 @@ export function parseTokenStream(tokenStream) {
         continue;
       }
 
-      // Implicit concatenation for adjacent literals/insertions/ids
-      if (match('SIS','STR_LITERAL','STR','ID','NUM','DEC','NUM_LITERAL','DEC_LITERAL','BOOL','BOOL_LITERAL')) {
+      // Implicit concatenation for adjacent literals/insertions only
+      if (match('STR_LITERAL','STR','NUM','DEC','NUM_LITERAL','DEC_LITERAL','BOOL','BOOL_LITERAL')) {
         continue;
       }
 
@@ -1168,7 +1188,10 @@ export function parseTokenStream(tokenStream) {
           // Record all declared variables
           (node.declarations || []).forEach(decl => {
             const varName = decl.name || (typeof decl.nameToken === 'object' ? decl.nameToken.lexeme : '');
-            if (varName) symbolTable.add(varName);
+            if (varName) {
+              symbolTable.add(varName);
+              console.log('Added to symbol table:', varName);
+            }
             // Check expressions in initializers
             if (decl.value) walkNode(decl.value, true);
           });
@@ -1177,6 +1200,7 @@ export function parseTokenStream(tokenStream) {
         case 'IDENTIFIER': {
           // Check if identifier is declared before use
           const idName = typeof node.name === 'object' ? node.name.lexeme : node.name;
+          console.log('Checking identifier:', idName, 'Symbol table has:', Array.from(symbolTable));
           if (idName && !symbolTable.has(idName) && !inDeclaration) {
             semanticErrors.push(`Variable '${idName}' used before declaration`);
           }
@@ -1192,12 +1216,31 @@ export function parseTokenStream(tokenStream) {
         }
         case 'IF_STMT':
         case 'WHILE_STMT':
-        case 'FOR_STMT':
         case 'COND_STATEMENT': {
           // Check condition expressions
           if (node.condition) walkNode(node.condition);
           (node.body || []).forEach(stmt => walkNode(stmt));
           if (node.elseBody) node.elseBody.forEach(stmt => walkNode(stmt));
+          break;
+        }
+        case 'FOR_STMT': {
+          // Treat the iterator as implicitly declared within the loop scope
+          const iterName = (typeof node.iterator === 'object')
+            ? (node.iterator.lexeme || node.iterator.type || '')
+            : (node.iterator || '');
+          const had = iterName ? symbolTable.has(iterName) : false;
+          if (iterName) symbolTable.add(iterName);
+
+          // Validate and walk loop boundaries
+          if (node.start) walkNode(node.start);
+          if (node.end) walkNode(node.end);
+          if (node.step) walkNode(node.step);
+
+          // Walk loop body
+          (node.body || []).forEach(stmt => walkNode(stmt));
+
+          // Remove iterator if it wasn't previously declared (limit scope to loop)
+          if (iterName && !had) symbolTable.delete(iterName);
           break;
         }
         case 'BINARY_EXPR': {
@@ -1218,7 +1261,16 @@ export function parseTokenStream(tokenStream) {
           (node.decls || []).forEach(decl => walkNode(decl));
           break;
         }
-        case 'ASSIGNMENT':
+        case 'ASSIGNMENT': {
+          // Check if variable being assigned to is declared
+          const assignName = node.name || (typeof node.nameToken === 'object' ? node.nameToken.lexeme : '');
+          if (assignName && !symbolTable.has(assignName)) {
+            semanticErrors.push(`Undeclared variable '${assignName}': use 'number ${assignName} = value' to declare first, not just '${assignName} = value'`);
+          }
+          // Walk the assigned value expression
+          if (node.value) walkNode(node.value);
+          break;
+        }
         case 'ECHO_STMT':
         case 'INPUT_STMT':
         case 'RETURN_STMT':
