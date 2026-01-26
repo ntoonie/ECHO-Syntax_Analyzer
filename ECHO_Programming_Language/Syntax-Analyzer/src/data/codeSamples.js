@@ -322,21 +322,9 @@ end`
 end`
   },
 
-  ERROR_MISSING_RETURN_TYPE: {
-    id: 'error_missing_return_type',
-    label: '⚠ 7. Missing Return Type (Semantics)',
-    description: 'Error: Functions returning a value must declare the return type.',
-    content: `start
-    /* Error: Missing return type (e.g., 'function number add...') */
-    function add(number a, number b)
-        return a + b
-    end function
-end`
-  },
-
   ERROR_INVALID_SIS: {
     id: 'error_invalid_sis',
-    label: '⚠ 8. Invalid SIS Syntax (Lexical)',
+    label: '⚠ 7. Invalid SIS Syntax (Lexical)',
     description: 'Error: Space not allowed after @ symbol in string interpolation.',
     content: `start
     string user = "Bob"
@@ -346,7 +334,7 @@ end`
 
   ERROR_RESERVED_KEYWORD: {
     id: 'error_reserved_keyword',
-    label: '⚠ 9. Reserved Keyword (Lexical)',
+    label: '⚠ 8. Reserved Keyword (Lexical)',
     description: 'Error: Using a reserved keyword (while) as a variable name.',
     content: `start
     number while = 10 /* Error: 'while' is a reserved word */
@@ -356,7 +344,7 @@ end`
 
   ERROR_UNCLOSED_SCOPE: {
     id: 'error_unclosed_scope',
-    label: '⚠ 10. Unclosed Scope (Structural)',
+    label: '⚠ 9. Unclosed Scope (Structural)',
     description: 'Error: The while loop is opened but never closed with end while.',
     content: `start
     number x = 0
@@ -364,6 +352,21 @@ end`
         echo @x
         x++
     /* Error: Missing 'end while' */
+end`
+  },
+
+  ERROR_ASSIGNMENT_IN_CONDITION: {
+    id: 'error_assignment_in_condition',
+    label: '⚠ 10. Assignment in Condition (Syntax)',
+    description: 'Error: Using the assignment operator "=" instead of the equality operator "==" in a conditional statement is not allowed.',
+    content: `start
+    number secret = 42
+    number guess = 0
+
+    /* Error: Expected equality operator '==' */
+    if guess = secret
+        echo "Correct!"
+    end if
 end`
   }
 };

@@ -17,60 +17,9 @@ Error Console Component
 @param {Object} metrics - Analysis metrics
 @param {Boolean} astValid - AST validity flag
 */
-const ErrorConsole = memo(function ErrorConsole({ errors, warnings, onErrorClick, metrics, astValid }) {
+const ErrorConsole = memo(function ErrorConsole({ errors, warnings, onErrorClick, metrics}) {
   const hasMetrics = metrics && (metrics.totalTokens > 0 || metrics.linesOfCode > 0);
   const hasIssues = errors.length > 0 || warnings.length > 0;
-  
-/*
-Get error category icon and color
-
-@param {String} category - Error category type
-@param {String} severity - Error severity level
-@returns {React.Component} Icon component with appropriate color
-*/
-const getErrorIcon = (category, severity) => {
-    if (severity === 'warning') {
-      return <AlertTriangle size={16} className="text-yellow-500" />;
-    }
-    
-    switch (category) {
-      case 'SYNTAX_ERROR':
-        return <XCircle size={16} className="text-red-500" />;
-      case 'GRAMMAR_ERROR':
-        return <AlertCircle size={16} className="text-red-600" />;
-      case 'SEMANTIC_ERROR':
-        return <AlertTriangle size={16} className="text-orange-500" />;
-      case 'STRUCTURAL_ERROR':
-        return <XCircle size={16} className="text-red-700" />;
-      case 'TYPE_ERROR':
-        return <AlertCircle size={16} className="text-purple-500" />;
-      default:
-        return <AlertCircle size={16} className="text-gray-500" />;
-    }
-  };
-
-/*
-Get error category display name
-
-@param {String} category - Error category type
-@returns {String} Human-readable category name
-*/
-const getCategoryName = (category) => {
-    switch (category) {
-      case 'SYNTAX_ERROR':
-        return 'Syntax';
-      case 'GRAMMAR_ERROR':
-        return 'Grammar';
-      case 'SEMANTIC_ERROR':
-        return 'Semantic';
-      case 'STRUCTURAL_ERROR':
-        return 'Structure';
-      case 'TYPE_ERROR':
-        return 'Type';
-      default:
-        return 'General';
-    }
-  };
 
   return (
     <div className="w-full p-4 flex justify-center items-start">

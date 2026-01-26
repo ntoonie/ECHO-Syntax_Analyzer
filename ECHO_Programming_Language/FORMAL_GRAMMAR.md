@@ -286,7 +286,7 @@ Where:
 <unary>         =>  ( "!" | "+" | "-" | "++" | "--" ) <unary>
                 | <primary>
 
-<primary>       =>  <identifier> | <literal>
+<primary>       =>  <identifier> | <literal> | <builtin_function_call>
 ```
 
 ---

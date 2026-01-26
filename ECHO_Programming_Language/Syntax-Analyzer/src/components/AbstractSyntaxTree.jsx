@@ -5,7 +5,7 @@ Interactive tree visualization component for displaying and navigating abstract 
 Depends on React, lucide-react icons.
 */
 
-import React, { memo, useState, useCallback, useMemo } from 'react';
+import React, { memo, useState, useCallback} from 'react';
 import { 
   FileText, ChevronRight, ChevronDown, Code, Braces, 
   Package, Square, Layers, GitBranch, Terminal, 

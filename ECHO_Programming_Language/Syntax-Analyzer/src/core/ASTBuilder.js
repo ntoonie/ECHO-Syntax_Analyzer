@@ -1,52 +1,47 @@
-/*
-Abstract Syntax Tree Builder – ECHO Language Parser
-
-Recursive descent parser that builds AST structures from token streams following ECHO formal grammar.
-Depends on TokenTypes module.
-*/
+/**
+ * Abstract Syntax Tree (AST) Builder
+ *
+ * Responsible for transforming a stream of tokens into a hierarchical Abstract Syntax Tree
+ * based on the ECHO language formal grammar. Implements a recursive descent parser with
+ * error recovery and modular node construction.
+ */
 
 import { TOKEN_TYPES, isDataType } from '../../../shared/tokenTypes.js';
 
-/* AST Node Types
+// --- AST Node Definitions ---
 
-Mapped to non-terminal symbols in ECHO formal grammar.
-*/
 export const AST_NODE_TYPES = {
-  // [B] Program Structure
+  // Program Structure
   ECHO_PROGRAM: 'ECHO_PROGRAM',
   STMT_LIST: 'STMT_LIST',
-  
-  // [D] Declarations
+
+  // Declarations
   DECLARATION_STMT: 'DECLARATION_STMT',
   DECL_LIST: 'DECL_LIST',
   DECL_ITEM: 'DECL_ITEM',
   DATA_TYPE: 'DATA_TYPE',
-  
-  // [F] Input & [G] Output & [E] Assignment
+
+  // Operations
   INPUT_STMT: 'INPUT_STMT',
   OUTPUT_STMT: 'OUTPUT_STMT',
   ASSIGNMENT_STMT: 'ASSIGNMENT_STMT',
   ASSIGNMENT_OP: 'ASSIGNMENT_OP',
   INPUT_EXPRESSION: 'INPUT_EXPRESSION',
-  
-  // [H] Control Flow
+
+  // Control Flow
   IF_STMT: 'IF_STMT',
-  IF_ELSE_STMT: 'IF_ELSE_STMT',           // Semantic grouping
-  IF_ELSEIF_ELSE_STMT: 'IF_ELSEIF_ELSE_STMT', // Semantic grouping
   ELSE_IF_BLOCK: 'ELSE_IF_BLOCK',
-  ELSE_BLOCK: 'ELSE_BLOCK',
   SWITCH_STMT: 'SWITCH_STMT',
   CASE_BLOCK: 'CASE_BLOCK',
-  DEFAULT_BLOCK: 'DEFAULT_BLOCK',
   JUMP_STMT: 'JUMP_STMT',
-  
-  // [I] Loops
+
+  // Loops
   FOR_LOOP: 'FOR_LOOP',
   WHILE_LOOP: 'WHILE_LOOP',
   DO_WHILE_LOOP: 'DO_WHILE_LOOP',
   STEP_CLAUSE: 'STEP_CLAUSE',
-  
-  // [J] Functions
+
+  // Functions
   FUNCTION_DEF: 'FUNCTION_DEF',
   PARAM_LIST: 'PARAM_LIST',
   PARAM: 'PARAM',
@@ -54,13 +49,13 @@ export const AST_NODE_TYPES = {
   FUNCTION_CALL: 'FUNCTION_CALL',
   ARG_LIST: 'ARG_LIST',
   RETURN_TYPE: 'RETURN_TYPE',
-  
-  // [N] Built-in Functions
+
+  // Built-ins
   BUILTIN_FUNCTION_CALL: 'BUILTIN_FUNCTION_CALL',
   BUILTIN_NAME: 'BUILTIN_NAME',
-  
-  // [C] Expressions
-  EXPRESSION: 'EXPRESSION', // Generic wrapper if needed
+
+  // Expressions
+  EXPRESSION: 'EXPRESSION',
   LOGIC_OR: 'LOGIC_OR',
   LOGIC_AND: 'LOGIC_AND',
   EQUALITY: 'EQUALITY',
@@ -69,10 +64,9 @@ export const AST_NODE_TYPES = {
   MULTIPLICATIVE: 'MULTIPLICATIVE',
   EXPONENTIAL: 'EXPONENTIAL',
   UNARY: 'UNARY',
-  
-  // [A] Lexical & [L, M] Operations
+
+  // Leaf Nodes
   IDENTIFIER: 'IDENTIFIER',
-  LITERAL: 'LITERAL',
   NUMBER_LIT: 'NUMBER_LIT',
   DECIMAL_LIT: 'DECIMAL_LIT',
   STRING_LIT: 'STRING_LIT',
@@ -83,804 +77,760 @@ export const AST_NODE_TYPES = {
   LIST_ACCESS: 'LIST_ACCESS',
   STRING_CONTENT: 'STRING_CONTENT',
   STRING_INSERTION: 'STRING_INSERTION',
-  OPERATOR: 'OPERATOR',
-  
-  // [K] Data Structures
+
+  // Data Structures
   DATA_STRUCT: 'DATA_STRUCT',
   FIELD_LIST: 'FIELD_LIST',
   FIELD_DECL: 'FIELD_DECL',
   SCHEMA_BINDING: 'SCHEMA_BINDING',
   BINDING_CLAUSE: 'BINDING_CLAUSE',
-  FIELD_ACCESS: 'FIELD_ACCESS', // Access via dot notation
+  FIELD_ACCESS: 'FIELD_ACCESS',
 };
 
-/*
-Create AST node with type and properties
-
-@param {String} type - Node type from AST_NODE_TYPES
-@param {Object} props - Additional node properties
-@returns {Object} AST node object
-*/
-const createNode = (type, props = {}) => ({
-  type,
-  ...props,
-  children: props.children || [],
-});
-
-/*
-Build Abstract Syntax Tree from tokens
-
-@param {Array} tokens - Array of tokens from the lexer
-@returns {Object} Object containing ast, errors, and success flag
-*/
-export const buildAST = (tokens) => {
-  if (!tokens || tokens.length === 0) {
-    return { ast: null, errors: [{ message: "No tokens provided", line: 0, column: 0 }], success: false };
+// Main parser class handling state management and recursive descent logic.
+class ASTParser {
+  constructor(tokens) {
+    this.tokens = tokens;
+    this.current = 0;
+    this.errors = [];
   }
 
-  let current = 0;
-  const errors = [];
+  parse() {
+    if (!this.tokens || this.tokens.length === 0) {
+      this.addError("No tokens provided");
+      return null;
+    }
 
-  // Parser primitives
-  const isAtEnd = () => current >= tokens.length;
-  const peek = (offset = 0) => (current + offset >= tokens.length ? null : tokens[current + offset]);
-  const previous = () => (current > 0 ? tokens[current - 1] : null);
+    try {
+      return this.parseProgram();
+    } catch (error) {
+      this.addError(`Internal Parser Error: ${error.message}`);
+      return null;
+    }
+  }
 
-  const advance = () => {
-    if (!isAtEnd()) current++;
-    return previous();
-  };
+  // ===========================================================================
+  // Helper Methods
+  // ===========================================================================
 
-  const check = (type) => {
-    if (isAtEnd()) return false;
-    return peek().type === type;
-  };
+  createNode(type, props = {}) {
+    return { type, ...props, children: props.children || [] };
+  }
 
-  const match = (...types) => {
+  isAtEnd() {
+    return this.current >= this.tokens.length;
+  }
+
+  peek(offset = 0) {
+    if (this.current + offset >= this.tokens.length) return null;
+    return this.tokens[this.current + offset];
+  }
+
+  previous() {
+    return this.current > 0 ? this.tokens[this.current - 1] : null;
+  }
+
+  advance() {
+    if (!this.isAtEnd()) this.current++;
+    return this.previous();
+  }
+
+  check(type) {
+    if (this.isAtEnd()) return false;
+    return this.peek().type === type;
+  }
+
+  match(...types) {
     for (const type of types) {
-      if (check(type)) {
-        advance();
+      if (this.check(type)) {
+        this.advance();
         return true;
       }
     }
     return false;
-  };
+  }
 
-  const consume = (type, message) => {
-    if (check(type)) return advance();
+  consume(type, message) {
+    if (this.check(type)) return this.advance();
     
-    const token = peek() || previous();
-    errors.push({
+    const token = this.peek() || this.previous();
+    this.addError(message || `Expected token type ${type}`, token);
+    return null;
+  }
+
+  addError(message, token = null) {
+    this.errors.push({
+      message,
       line: token?.line || 0,
       column: token?.column || 0,
-      message: message || `Expected token type ${type}, got ${token?.type || 'EOF'}`
     });
-    return null;
-  };
+  }
 
-  // --- Grammar Productions ---
+  // ===========================================================================
+  // Program Structure
+  // ===========================================================================
 
-  // [B] <ECHO_program> => "start" <statement_list> "end"
-  const parseProgram = () => {
-    const startToken = consume(TOKEN_TYPES.KEYWORD_START, 'Program must begin with "start"');
-    if (!startToken && errors.length > 0) return null; // Critical failure
+  parseProgram() {
+    const startToken = this.consume(TOKEN_TYPES.KEYWORD_START, 'Program must begin with "start"');
+    
+    // Abort if start is missing to prevent cascading errors
+    if (!startToken && this.errors.length > 0) return null;
 
-    const statements = parseStatementList();
+    const statements = this.parseStatementList();
 
-    const endToken = consume(TOKEN_TYPES.KEYWORD_END, 'Program must end with "end"');
+    const endToken = this.consume(TOKEN_TYPES.KEYWORD_END, 'Program must end with "end"');
 
-    return createNode(AST_NODE_TYPES.ECHO_PROGRAM, {
+    return this.createNode(AST_NODE_TYPES.ECHO_PROGRAM, {
       startToken,
       statements,
       endToken,
-      errors: errors.length > 0 ? errors : undefined
     });
-  };
+  }
 
-  // [B] <statement_list> => { <statement> }
-  const parseStatementList = (stopConditions = []) => {
+  parseStatementList(stopConditions = []) {
     const statements = [];
-    
-    while (!isAtEnd()) {
-      // Check stop conditions (e.g., 'end', 'else', 'case', 'default')
-      if (check(TOKEN_TYPES.KEYWORD_END)) break;
-      if (stopConditions.some(cond => check(cond))) break;
 
-      const stmt = parseStatement();
+    while (!this.isAtEnd()) {
+      if (this.check(TOKEN_TYPES.KEYWORD_END)) break;
+      if (stopConditions.some(cond => this.check(cond))) break;
+
+      const stmt = this.parseStatement();
       if (stmt) {
         statements.push(stmt);
       } else {
-        // Synchronization / Panic Mode
-        // If we fail to parse a statement but haven't hit a stop condition, 
-        // advance to avoid infinite loops.
-        if (!isAtEnd()) advance();
+        // Panic mode recovery: skip token to prevent infinite loops
+        if (!this.isAtEnd()) this.advance();
       }
     }
-    return createNode(AST_NODE_TYPES.STMT_LIST, { statements });
-  };
+    return this.createNode(AST_NODE_TYPES.STMT_LIST, { statements });
+  }
 
-  // [B] <statement> Router
-  const parseStatement = () => {
-    // Skip Noise Words [A]
-    while (match(TOKEN_TYPES.NOISE_WITH, TOKEN_TYPES.NOISE_TO, TOKEN_TYPES.NOISE_BY));
+  // ===========================================================================
+  // Statements
+  // ===========================================================================
 
-    const token = peek();
+  parseStatement() {
+    // Skip noise words that don't affect logic
+    while (this.match(TOKEN_TYPES.NOISE_WITH, TOKEN_TYPES.NOISE_TO, TOKEN_TYPES.NOISE_BY));
+
+    const token = this.peek();
     if (!token) return null;
 
-    // 1. Declarations [D]
-    if (isDataType(token.type)) return parseDeclaration();
-
-    // 2. Output [G]
-    if (token.type === TOKEN_TYPES.KEYWORD_ECHO) return parseOutputStatement();
-
-    // 3. Input [F] (Lookahead: ID = input)
-    if (token.type === TOKEN_TYPES.IDENTIFIER) {
-      const next = peek(1);
-      const nextNext = peek(2);
-      if (next?.type === TOKEN_TYPES.OP_ASSIGN && nextNext?.type === TOKEN_TYPES.KEYWORD_INPUT) {
-        return parseInputStatement();
-      }
+    if (isDataType(token.type)) return this.parseDeclaration();
+    if (token.type === TOKEN_TYPES.KEYWORD_ECHO) return this.parseOutputStatement();
+    
+    // Lookahead for input syntax: identifier = input
+    if (token.type === TOKEN_TYPES.IDENTIFIER && this.isInputStatement()) {
+      return this.parseInputStatement();
     }
 
-    // 4. Control Flow [H]
-    if (token.type === TOKEN_TYPES.KEYWORD_IF) return parseIfStatement();
-    if (token.type === TOKEN_TYPES.KEYWORD_SWITCH) return parseSwitchStatement();
+    // Control Flow
+    if (token.type === TOKEN_TYPES.KEYWORD_IF) return this.parseIfStatement();
+    if (token.type === TOKEN_TYPES.KEYWORD_SWITCH) return this.parseSwitchStatement();
 
-    // 5. Loops [I]
-    if (token.type === TOKEN_TYPES.KEYWORD_FOR) return parseForLoop();
-    if (token.type === TOKEN_TYPES.KEYWORD_WHILE) return parseWhileLoop();
-    if (token.type === TOKEN_TYPES.KEYWORD_DO) return parseDoWhileLoop();
+    // Loops
+    if (token.type === TOKEN_TYPES.KEYWORD_FOR) return this.parseForLoop();
+    if (token.type === TOKEN_TYPES.KEYWORD_WHILE) return this.parseWhileLoop();
+    if (token.type === TOKEN_TYPES.KEYWORD_DO) return this.parseDoWhileLoop();
 
-    // 6. Functions [J]
-    if (token.type === TOKEN_TYPES.KEYWORD_FUNCTION) return parseFunctionDef();
-    if (token.type === TOKEN_TYPES.RESERVED_RETURN) return parseReturnStatement();
+    // Functions & Structures
+    if (token.type === TOKEN_TYPES.KEYWORD_FUNCTION) return this.parseFunctionDef();
+    if (token.type === TOKEN_TYPES.RESERVED_RETURN) return this.parseReturnStatement();
+    if (token.type === TOKEN_TYPES.RESERVED_DATA) return this.parseDataStruct();
 
-    // 7. Data Structures [K]
-    if (token.type === TOKEN_TYPES.RESERVED_DATA) return parseDataStruct();
-
-    // 8. Jumps [I]
-    if (token.type === TOKEN_TYPES.RESERVED_BREAK || token.type === TOKEN_TYPES.RESERVED_CONTINUE) {
-      return parseJumpStatement();
+    // Jumps
+    if (this.match(TOKEN_TYPES.RESERVED_BREAK, TOKEN_TYPES.RESERVED_CONTINUE)) {
+      return this.createNode(AST_NODE_TYPES.JUMP_STMT, { keyword: this.previous(), type: this.previous().lexeme });
     }
 
-    // 9. Built-in Calls [N]
-    if ([TOKEN_TYPES.BUILTIN_SUM, TOKEN_TYPES.BUILTIN_MEDIAN, TOKEN_TYPES.BUILTIN_MODE, 
-         TOKEN_TYPES.BUILTIN_AVERAGE, TOKEN_TYPES.BUILTIN_ISEVEN, TOKEN_TYPES.BUILTIN_ISODD].includes(token.type)) {
-      return parseBuiltinFunctionCall();
-    }
+    // Built-in Calls
+    if (this.isBuiltinToken(token.type)) return this.parseBuiltinFunctionCall();
 
-    // 10. Assignment [E] or Expression Statement
-    if (token.type === TOKEN_TYPES.IDENTIFIER) return parseAssignmentOrCall();
+    // Fallback: Assignment or expression statement
+    if (token.type === TOKEN_TYPES.IDENTIFIER) return this.parseAssignmentOrCall();
 
     return null;
-  };
+  }
 
-  // [D] <declaration_stmt> => <data_type> <decl_list>
-  const parseDeclaration = () => {
-    const typeToken = advance(); // Consume type
-    const dataType = createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme });
+  isInputStatement() {
+    const next = this.peek(1);
+    const nextNext = this.peek(2);
+    return next?.type === TOKEN_TYPES.OP_ASSIGN && nextNext?.type === TOKEN_TYPES.KEYWORD_INPUT;
+  }
+
+  isBuiltinToken(type) {
+    return [
+      TOKEN_TYPES.BUILTIN_SUM, TOKEN_TYPES.BUILTIN_MEDIAN, TOKEN_TYPES.BUILTIN_MODE,
+      TOKEN_TYPES.BUILTIN_AVERAGE, TOKEN_TYPES.BUILTIN_ISEVEN, TOKEN_TYPES.BUILTIN_ISODD
+    ].includes(type);
+  }
+
+  // ===========================================================================
+  // Declarations
+  // ===========================================================================
+
+  parseDeclaration() {
+    const typeToken = this.advance();
+    const dataType = this.createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme });
     
     const items = [];
     do {
-      items.push(parseDeclarationItem());
-    } while (match(TOKEN_TYPES.DEL_COMMA));
+      items.push(this.parseDeclarationItem());
+    } while (this.match(TOKEN_TYPES.DEL_COMMA));
 
-    return createNode(AST_NODE_TYPES.DECLARATION_STMT, {
+    return this.createNode(AST_NODE_TYPES.DECLARATION_STMT, {
       dataType,
-      declList: createNode(AST_NODE_TYPES.DECL_LIST, { items })
+      declList: this.createNode(AST_NODE_TYPES.DECL_LIST, { items })
     });
-  };
+  }
 
-  // [D] <decl_item>
-  const parseDeclarationItem = () => {
-    const idToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected identifier");
+  parseDeclarationItem() {
+    const idToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected identifier");
     if (!idToken) return null;
 
-    const identifier = createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme });
+    const identifier = this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme });
 
-    // Array Decl: id[10]
-    if (match(TOKEN_TYPES.DEL_LBRACK)) {
-      const sizeToken = consume(TOKEN_TYPES.NUMBER_LITERAL, "Expected array size");
-      consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
-      return createNode(AST_NODE_TYPES.DECL_ITEM, {
+    // Handle array declarations
+    if (this.match(TOKEN_TYPES.DEL_LBRACK)) {
+      const sizeToken = this.consume(TOKEN_TYPES.NUMBER_LITERAL, "Expected array size");
+      this.consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
+      return this.createNode(AST_NODE_TYPES.DECL_ITEM, {
         identifier,
         isArray: true,
-        size: sizeToken ? createNode(AST_NODE_TYPES.NUMBER_LIT, { token: sizeToken, value: parseFloat(sizeToken.lexeme) }) : null
+        size: sizeToken ? this.createNode(AST_NODE_TYPES.NUMBER_LIT, { token: sizeToken, value: parseFloat(sizeToken.lexeme) }) : null
       });
     }
 
-    // Assignment: id = expr | id = list_lit
-    if (match(TOKEN_TYPES.OP_ASSIGN)) {
-      const assignmentOp = createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { value: '=' });
-      // Check for List Literal [L]
-      if (check(TOKEN_TYPES.DEL_LBRACK)) {
-         return createNode(AST_NODE_TYPES.DECL_ITEM, { identifier, assignmentOp, value: parseListLiteral() });
-      }
-      const expression = parseExpression();
-      return createNode(AST_NODE_TYPES.DECL_ITEM, { identifier, assignmentOp, value: expression });
+    // Handle initialization assignment
+    if (this.match(TOKEN_TYPES.OP_ASSIGN)) {
+      const assignmentOp = this.createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { value: '=' });
+      const value = this.check(TOKEN_TYPES.DEL_LBRACK) ? this.parseListLiteral() : this.parseExpression();
+      return this.createNode(AST_NODE_TYPES.DECL_ITEM, { identifier, assignmentOp, value });
     }
 
-    return createNode(AST_NODE_TYPES.DECL_ITEM, { identifier });
-  };
+    return this.createNode(AST_NODE_TYPES.DECL_ITEM, { identifier });
+  }
 
-  // [E] <assignment_stmt>
-  const parseAssignmentOrCall = () => {
-    const idToken = advance();
-    let left = createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme });
+  // ===========================================================================
+  // Assignment & I/O
+  // ===========================================================================
 
-    // Function Call [J]
-    if (match(TOKEN_TYPES.DEL_LPAREN)) return parseFunctionCall(left);
+  parseAssignmentOrCall() {
+    const idToken = this.advance();
+    let left = this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme });
 
-    // List Access [L]
-    if (match(TOKEN_TYPES.DEL_LBRACK)) {
-      const index = parseExpression();
-      consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
-      left = createNode(AST_NODE_TYPES.LIST_ACCESS, { array: left, index });
+    // Function Call
+    if (this.match(TOKEN_TYPES.DEL_LPAREN)) return this.parseFunctionCall(left);
+
+    // List Access
+    if (this.match(TOKEN_TYPES.DEL_LBRACK)) {
+      const index = this.parseExpression();
+      this.consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
+      left = this.createNode(AST_NODE_TYPES.LIST_ACCESS, { array: left, index });
     }
 
-    // Assignment
-    if (match(TOKEN_TYPES.OP_ASSIGN, TOKEN_TYPES.OP_ADD_ASSIGN, TOKEN_TYPES.OP_SUB_ASSIGN, 
-              TOKEN_TYPES.OP_MUL_ASSIGN, TOKEN_TYPES.OP_DIV_ASSIGN, TOKEN_TYPES.OP_MOD_ASSIGN)) {
-      const opToken = previous();
-      const assignmentOp = createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { token: opToken, operator: opToken.lexeme });
-      const value = parseExpression();
-      return createNode(AST_NODE_TYPES.ASSIGNMENT_STMT, { target: left, assignmentOp, value });
+    // Assignment Operation
+    if (this.match(TOKEN_TYPES.OP_ASSIGN, TOKEN_TYPES.OP_ADD_ASSIGN, TOKEN_TYPES.OP_SUB_ASSIGN,
+                   TOKEN_TYPES.OP_MUL_ASSIGN, TOKEN_TYPES.OP_DIV_ASSIGN, TOKEN_TYPES.OP_MOD_ASSIGN)) {
+      const opToken = this.previous();
+      const assignmentOp = this.createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { token: opToken, operator: opToken.lexeme });
+      const value = this.parseExpression();
+      return this.createNode(AST_NODE_TYPES.ASSIGNMENT_STMT, { target: left, assignmentOp, value });
     }
 
-    // Fallback: Expression Statement
-    return createNode(AST_NODE_TYPES.EXPRESSION, { value: left });
-  };
+    // Fallback to simple expression
+    return this.createNode(AST_NODE_TYPES.EXPRESSION, { value: left });
+  }
 
-  // [F] <input_stmt>
-  const parseInputStatement = () => {
-    const idToken = consume(TOKEN_TYPES.IDENTIFIER);
-    const identifier = createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme });
+  parseInputStatement() {
+    const idToken = this.consume(TOKEN_TYPES.IDENTIFIER);
+    const identifier = this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme });
 
-    const opToken = consume(TOKEN_TYPES.OP_ASSIGN, "Expected '='");
-    const assignmentOp = createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { token: opToken, operator: '=' });
+    this.consume(TOKEN_TYPES.OP_ASSIGN, "Expected '='");
+    const assignmentOp = this.createNode(AST_NODE_TYPES.ASSIGNMENT_OP, { operator: '=' });
 
-    consume(TOKEN_TYPES.KEYWORD_INPUT, "Expected 'input'");
+    this.consume(TOKEN_TYPES.KEYWORD_INPUT, "Expected 'input'");
     
-    // <input_expression>
-    if (match(TOKEN_TYPES.DEL_LPAREN)) {
-      const typeToken = advance(); // Consume type
+    if (this.match(TOKEN_TYPES.DEL_LPAREN)) {
+      const typeToken = this.advance();
       if (!isDataType(typeToken.type)) {
-        errors.push({ message: `Expected data type in input, got ${typeToken.lexeme}`, line: typeToken.line, column: typeToken.column });
+        this.addError(`Expected data type in input, got ${typeToken.lexeme}`, typeToken);
       }
       
-      let prompt = null;
-      if (match(TOKEN_TYPES.DEL_COMMA)) {
-        prompt = parseExpression();
-      }
-      consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+      const prompt = this.match(TOKEN_TYPES.DEL_COMMA) ? this.parseExpression() : null;
+      this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
 
-      const inputExpr = createNode(AST_NODE_TYPES.INPUT_EXPRESSION, {
-        dataType: createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
+      const inputExpr = this.createNode(AST_NODE_TYPES.INPUT_EXPRESSION, {
+        dataType: this.createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
         prompt
       });
 
-      return createNode(AST_NODE_TYPES.INPUT_STMT, { target: identifier, assignmentOp, expression: inputExpr });
+      return this.createNode(AST_NODE_TYPES.INPUT_STMT, { target: identifier, assignmentOp, expression: inputExpr });
     }
     return null;
-  };
+  }
 
-  // [G] <output_stmt>
-  const parseOutputStatement = () => {
-    const echoToken = advance();
-    let arg = null;
+  parseOutputStatement() {
+    const echoToken = this.advance();
+    const arg = this.check(TOKEN_TYPES.STRING_LITERAL) 
+      ? this.parseCompositeStringLiteral() 
+      : this.parseExpression();
+
+    return this.createNode(AST_NODE_TYPES.OUTPUT_STMT, { keyword: echoToken, args: [arg] });
+  }
+
+  // ===========================================================================
+  // Control Flow
+  // ===========================================================================
+
+  parseIfStatement() {
+    const ifToken = this.advance();
+    const condition = this.parseExpression();
     
-    // Check for String Literal (SIS) [M]
-    if (check(TOKEN_TYPES.STRING_LITERAL)) {
-      arg = parseCompositeStringLiteral();
-    } else {
-      arg = parseExpression();
-    }
+    this.match(TOKEN_TYPES.IDENTIFIER); // Consume optional 'then'
 
-    return createNode(AST_NODE_TYPES.OUTPUT_STMT, { keyword: echoToken, args: [arg] });
-  };
-
-  // [H] <conditional_stmt>
-  const parseIfStatement = () => {
-    const ifToken = advance(); // consume if
-    const condition = parseExpression();
-    
-    // Optional 'then' support
-    match(TOKEN_TYPES.IDENTIFIER); // Consume 'then' if present (lexer might need adjustment or just consume ID 'then')
-
-    const thenBody = parseStatementList([TOKEN_TYPES.KEYWORD_ELSE]);
+    const thenBody = this.parseStatementList([TOKEN_TYPES.KEYWORD_ELSE]);
     const elseIfs = [];
     let elseBody = null;
 
-    // Handle 'else'
-    while (match(TOKEN_TYPES.KEYWORD_ELSE)) {
-      // Check for 'if' (Else If)
-      if (match(TOKEN_TYPES.KEYWORD_IF)) {
-        const elifCondition = parseExpression();
-        match(TOKEN_TYPES.IDENTIFIER); // Optional 'then'
-        const elifBody = parseStatementList([TOKEN_TYPES.KEYWORD_ELSE]);
-        elseIfs.push(createNode(AST_NODE_TYPES.ELSE_IF_BLOCK, { condition: elifCondition, body: elifBody }));
+    while (this.match(TOKEN_TYPES.KEYWORD_ELSE)) {
+      if (this.match(TOKEN_TYPES.KEYWORD_IF)) {
+        const elifCondition = this.parseExpression();
+        this.match(TOKEN_TYPES.IDENTIFIER); // Optional 'then'
+        const elifBody = this.parseStatementList([TOKEN_TYPES.KEYWORD_ELSE]);
+        elseIfs.push(this.createNode(AST_NODE_TYPES.ELSE_IF_BLOCK, { condition: elifCondition, body: elifBody }));
       } else {
-        // Pure Else
-        elseBody = parseStatementList();
-        break; // Else is final
+        elseBody = this.parseStatementList();
+        break;
       }
     }
 
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_IF, "Expected 'if' after 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_IF, "Expected 'if' after 'end'");
 
-    return createNode(AST_NODE_TYPES.IF_STMT, { keyword: ifToken, condition, thenBody, elseIfs, elseBody });
-  };
+    return this.createNode(AST_NODE_TYPES.IF_STMT, { keyword: ifToken, condition, thenBody, elseIfs, elseBody });
+  }
 
-  // [H] <switch_stmt>
-  const parseSwitchStatement = () => {
-    const switchToken = advance();
-    const expression = parseExpression();
+  parseSwitchStatement() {
+    const switchToken = this.advance();
+    const expression = this.parseExpression();
     const cases = [];
     let defaultBlock = null;
 
-    while (!check(TOKEN_TYPES.KEYWORD_END) && !isAtEnd()) {
-      if (match(TOKEN_TYPES.KEYWORD_CASE)) {
-        const val = parsePrimary();
-        const body = parseStatementList([TOKEN_TYPES.KEYWORD_CASE, TOKEN_TYPES.KEYWORD_DEFAULT]);
-        cases.push(createNode(AST_NODE_TYPES.CASE_BLOCK, { value: val, body }));
-      } else if (match(TOKEN_TYPES.KEYWORD_DEFAULT)) {
-        defaultBlock = parseStatementList();
+    while (!this.check(TOKEN_TYPES.KEYWORD_END) && !this.isAtEnd()) {
+      if (this.match(TOKEN_TYPES.KEYWORD_CASE)) {
+        const val = this.parsePrimary();
+        const body = this.parseStatementList([TOKEN_TYPES.KEYWORD_CASE, TOKEN_TYPES.KEYWORD_DEFAULT]);
+        cases.push(this.createNode(AST_NODE_TYPES.CASE_BLOCK, { value: val, body }));
+      } else if (this.match(TOKEN_TYPES.KEYWORD_DEFAULT)) {
+        defaultBlock = this.parseStatementList();
       } else {
         break;
       }
     }
 
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_SWITCH, "Expected 'switch' after 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_SWITCH, "Expected 'switch' after 'end'");
 
-    return createNode(AST_NODE_TYPES.SWITCH_STMT, { keyword: switchToken, expression, cases, defaultBlock });
-  };
+    return this.createNode(AST_NODE_TYPES.SWITCH_STMT, { keyword: switchToken, expression, cases, defaultBlock });
+  }
 
-  // [I] <loop_stmt>
-  const parseForLoop = () => {
-    const forToken = advance();
-    const idToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected loop variable");
-    consume(TOKEN_TYPES.OP_ASSIGN, "Expected '='");
-    const start = parseExpression();
-    consume(TOKEN_TYPES.NOISE_TO, "Expected 'to'");
-    const end = parseExpression();
+  // ===========================================================================
+  // Loops
+  // ===========================================================================
+
+  parseForLoop() {
+    const forToken = this.advance();
+    const idToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected loop variable");
+    
+    this.consume(TOKEN_TYPES.OP_ASSIGN, "Expected '='");
+    const start = this.parseExpression();
+    
+    this.consume(TOKEN_TYPES.NOISE_TO, "Expected 'to'");
+    const end = this.parseExpression();
     
     let step = null;
-    if (match(TOKEN_TYPES.NOISE_BY)) {
-      step = createNode(AST_NODE_TYPES.STEP_CLAUSE, { value: parseExpression() });
+    if (this.match(TOKEN_TYPES.NOISE_BY)) {
+      step = this.createNode(AST_NODE_TYPES.STEP_CLAUSE, { value: this.parseExpression() });
     }
 
-    const body = parseStatementList();
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_FOR, "Expected 'for'");
+    const body = this.parseStatementList();
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_FOR, "Expected 'for'");
 
-    return createNode(AST_NODE_TYPES.FOR_LOOP, {
+    return this.createNode(AST_NODE_TYPES.FOR_LOOP, {
       keyword: forToken,
-      iterator: createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme }),
+      iterator: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme }),
       start,
       end,
       step,
       body
     });
-  };
+  }
 
-  const parseWhileLoop = () => {
-    const whileToken = advance();
-    const condition = parseExpression();
-    const body = parseStatementList();
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_WHILE, "Expected 'while'");
-
-    return createNode(AST_NODE_TYPES.WHILE_LOOP, { keyword: whileToken, condition, body });
-  };
-
-  const parseDoWhileLoop = () => {
-    const doToken = advance();
-    const body = parseStatementList([TOKEN_TYPES.KEYWORD_WHILE]);
-    consume(TOKEN_TYPES.KEYWORD_WHILE, "Expected 'while'");
-    const condition = parseExpression();
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_DO, "Expected 'do'");
-
-    return createNode(AST_NODE_TYPES.DO_WHILE_LOOP, { keyword: doToken, body, condition });
-  };
-
-  // [J] <function_def>
-  const parseFunctionDef = () => {
-    const funcToken = advance();
+  parseWhileLoop() {
+    const whileToken = this.advance();
+    const condition = this.parseExpression();
+    const body = this.parseStatementList();
     
-    // Check for Return Type (implies strict return)
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_WHILE, "Expected 'while'");
+
+    return this.createNode(AST_NODE_TYPES.WHILE_LOOP, { keyword: whileToken, condition, body });
+  }
+
+  parseDoWhileLoop() {
+    const doToken = this.advance();
+    const body = this.parseStatementList([TOKEN_TYPES.KEYWORD_WHILE]);
+    
+    this.consume(TOKEN_TYPES.KEYWORD_WHILE, "Expected 'while'");
+    const condition = this.parseExpression();
+    
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_DO, "Expected 'do'");
+
+    return this.createNode(AST_NODE_TYPES.DO_WHILE_LOOP, { keyword: doToken, body, condition });
+  }
+
+  // ===========================================================================
+  // Functions & Structures
+  // ===========================================================================
+
+  parseFunctionDef() {
+    const funcToken = this.advance();
+    
     let returnType = null;
-    if (isDataType(peek()?.type)) {
-      const typeToken = advance();
-      returnType = createNode(AST_NODE_TYPES.RETURN_TYPE, { token: typeToken, name: typeToken.lexeme });
+    if (isDataType(this.peek()?.type)) {
+      const typeToken = this.advance();
+      returnType = this.createNode(AST_NODE_TYPES.RETURN_TYPE, { token: typeToken, name: typeToken.lexeme });
     }
 
-    const nameToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected function name");
-    consume(TOKEN_TYPES.DEL_LPAREN, "Expected '('");
+    const nameToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected function name");
+    this.consume(TOKEN_TYPES.DEL_LPAREN, "Expected '('");
     
     const params = [];
-    if (!check(TOKEN_TYPES.DEL_RPAREN)) {
+    if (!this.check(TOKEN_TYPES.DEL_RPAREN)) {
       do {
-        const pType = advance(); // Validated as Type by grammar expectation? Or check?
-        if (!isDataType(pType.type)) errors.push({ message: "Expected parameter type", line: pType.line, column: pType.column });
-        const pName = consume(TOKEN_TYPES.IDENTIFIER, "Expected parameter name");
-        params.push(createNode(AST_NODE_TYPES.PARAM, {
-          dataType: createNode(AST_NODE_TYPES.DATA_TYPE, { token: pType, name: pType.lexeme }),
-          name: createNode(AST_NODE_TYPES.IDENTIFIER, { token: pName, name: pName?.lexeme })
+        const pType = this.advance();
+        if (!isDataType(pType.type)) {
+            this.addError("Expected parameter type", pType);
+        }
+        const pName = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected parameter name");
+        params.push(this.createNode(AST_NODE_TYPES.PARAM, {
+          dataType: this.createNode(AST_NODE_TYPES.DATA_TYPE, { token: pType, name: pType.lexeme }),
+          name: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: pName, name: pName?.lexeme })
         }));
-      } while (match(TOKEN_TYPES.DEL_COMMA));
+      } while (this.match(TOKEN_TYPES.DEL_COMMA));
     }
-    consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+    this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
 
-    // Body & Return strictness
-    const body = parseStatementList([TOKEN_TYPES.RESERVED_RETURN]);
+    const body = this.parseStatementList([TOKEN_TYPES.RESERVED_RETURN]);
     
-    let returnStmt = null;
-    if (returnType) {
-      // Must have return
-      if (check(TOKEN_TYPES.RESERVED_RETURN)) {
-        returnStmt = parseReturnStatement();
-      } else {
-        errors.push({ 
-          message: `Function '${nameToken?.lexeme}' with return type '${returnType.name}' must have a return statement.`,
-          line: funcToken.line, column: funcToken.column 
-        });
-      }
-    } else {
-      // Void, optional return
-      if (check(TOKEN_TYPES.RESERVED_RETURN)) {
-        returnStmt = parseReturnStatement();
-      }
+    let returnStatement = null;
+    if (this.check(TOKEN_TYPES.RESERVED_RETURN)) {
+      returnStatement = this.parseReturnStatement();
+    } else if (returnType) {
+      this.addError(`Function '${nameToken?.lexeme}' declared with return type must return a value.`, funcToken);
     }
 
-    consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
-    consume(TOKEN_TYPES.KEYWORD_FUNCTION, "Expected 'function'");
+    this.consume(TOKEN_TYPES.KEYWORD_END, "Expected 'end'");
+    this.consume(TOKEN_TYPES.KEYWORD_FUNCTION, "Expected 'function'");
 
-    return createNode(AST_NODE_TYPES.FUNCTION_DEF, {
+    return this.createNode(AST_NODE_TYPES.FUNCTION_DEF, {
       keyword: funcToken,
       returnType,
-      name: createNode(AST_NODE_TYPES.IDENTIFIER, { token: nameToken, name: nameToken?.lexeme }),
-      parameters: createNode(AST_NODE_TYPES.PARAM_LIST, { params }),
+      name: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: nameToken, name: nameToken?.lexeme }),
+      parameters: this.createNode(AST_NODE_TYPES.PARAM_LIST, { params }),
       body,
-      returnStatement: returnStmt
+      returnStatement
     });
-  };
+  }
 
-  const parseReturnStatement = () => {
-    const retToken = advance();
-    const value = parseExpression();
-    return createNode(AST_NODE_TYPES.RETURN_STMT, { keyword: retToken, value });
-  };
+  parseReturnStatement() {
+    const retToken = this.advance();
+    const value = this.parseExpression();
+    return this.createNode(AST_NODE_TYPES.RETURN_STMT, { keyword: retToken, value });
+  }
 
-  // [K] <data_struct>
-  const parseDataStruct = () => {
-    const dataToken = advance();
-    consume(TOKEN_TYPES.RESERVED_STRUCT, "Expected 'struct'");
-    const nameToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected struct name");
-    consume(TOKEN_TYPES.DEL_LBRACE, "Expected '{'");
+  parseDataStruct() {
+    const dataToken = this.advance();
+    this.consume(TOKEN_TYPES.RESERVED_STRUCT, "Expected 'struct'");
+    
+    const nameToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected struct name");
+    this.consume(TOKEN_TYPES.DEL_LBRACE, "Expected '{'");
 
     const fields = [];
-    while (!check(TOKEN_TYPES.DEL_RBRACE) && !isAtEnd()) {
-      fields.push(parseFieldDeclaration());
-      match(TOKEN_TYPES.DEL_COMMA); // Optional comma handling
+    while (!this.check(TOKEN_TYPES.DEL_RBRACE) && !this.isAtEnd()) {
+      const field = this.parseFieldDeclaration();
+      if (field) fields.push(field);
+      this.match(TOKEN_TYPES.DEL_COMMA); 
     }
-    consume(TOKEN_TYPES.DEL_RBRACE, "Expected '}'");
+    this.consume(TOKEN_TYPES.DEL_RBRACE, "Expected '}'");
 
-    return createNode(AST_NODE_TYPES.DATA_STRUCT, {
+    return this.createNode(AST_NODE_TYPES.DATA_STRUCT, {
       keyword: dataToken,
-      name: createNode(AST_NODE_TYPES.IDENTIFIER, { token: nameToken, name: nameToken?.lexeme }),
-      fields: createNode(AST_NODE_TYPES.FIELD_LIST, { fields })
+      name: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: nameToken, name: nameToken?.lexeme }),
+      fields: this.createNode(AST_NODE_TYPES.FIELD_LIST, { fields })
     });
-  };
+  }
 
-  // [K] <field_decl> & <schema_binding>
-  const parseFieldDeclaration = () => {
-    // Lookahead for Schema Binding: <identifier> ":" <data_type>
-    // FIX: Ensure we check for DEL_COLON specifically
-    if (check(TOKEN_TYPES.IDENTIFIER) && peek(1)?.type === TOKEN_TYPES.DEL_COLON) {
-      return parseSchemaBinding();
+  parseFieldDeclaration() {
+    // Lookahead for Schema Binding: identifier : data_type
+    if (this.check(TOKEN_TYPES.IDENTIFIER) && this.peek(1)?.type === TOKEN_TYPES.DEL_COLON) {
+      return this.parseSchemaBinding();
     }
 
-    // Standard Field: <data_type> <identifier> [ = <expr> ]
-    const typeToken = advance();
+    const typeToken = this.advance();
     if (!isDataType(typeToken.type)) {
-      // If we are here, it's not a schema binding and not a valid type -> Error
-      errors.push({ message: `Expected field type or schema binding, found ${typeToken.lexeme}`, line: typeToken.line, column: typeToken.column });
-      // Synchronization: consume until next likely field start or brace
-      return null; 
+      this.addError(`Expected field type, found ${typeToken.lexeme}`, typeToken);
+      return null;
     }
     
-    const idToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected field identifier");
-    
-    let defaultValue = null;
-    if (match(TOKEN_TYPES.OP_ASSIGN)) {
-      defaultValue = parseExpression();
-    }
+    const idToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected field identifier");
+    const defaultValue = this.match(TOKEN_TYPES.OP_ASSIGN) ? this.parseExpression() : null;
 
-    return createNode(AST_NODE_TYPES.FIELD_DECL, {
-      dataType: createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
-      identifier: createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme }),
+    return this.createNode(AST_NODE_TYPES.FIELD_DECL, {
+      dataType: this.createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
+      identifier: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken?.lexeme }),
       defaultValue
     });
-  };
+  }
 
-  // <schema_binding> => <identifier> ":" <data_type> [ <binding_clause> ]
-  const parseSchemaBinding = () => {
-    const idToken = advance(); // Identifier
-    consume(TOKEN_TYPES.DEL_COLON, "Expected ':'");
+  parseSchemaBinding() {
+    const idToken = this.advance();
+    this.consume(TOKEN_TYPES.DEL_COLON, "Expected ':'");
     
-    const typeToken = advance();
-    if (!isDataType(typeToken.type)) {
-      errors.push({ message: "Expected data type for schema binding", line: typeToken.line, column: typeToken.column });
-    }
-
+    const typeToken = this.advance();
     let bindingClause = null;
-    if (match(TOKEN_TYPES.DEL_LPAREN)) {
-      const bindId = consume(TOKEN_TYPES.IDENTIFIER, "Expected binding identifier");
-      consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+
+    if (this.match(TOKEN_TYPES.DEL_LPAREN)) {
+      const bindId = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected binding identifier");
+      this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
       if (bindId) {
-        // Match AST structure expected by downstream tools
-        bindingClause = createNode(AST_NODE_TYPES.BINDING_CLAUSE, { 
-          value: bindId.lexeme
-        });
+        bindingClause = this.createNode(AST_NODE_TYPES.BINDING_CLAUSE, { value: bindId.lexeme });
       }
     }
 
-    return createNode(AST_NODE_TYPES.SCHEMA_BINDING, {
-      identifier: createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme }),
-      dataType: createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
+    return this.createNode(AST_NODE_TYPES.SCHEMA_BINDING, {
+      identifier: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: idToken, name: idToken.lexeme }),
+      dataType: this.createNode(AST_NODE_TYPES.DATA_TYPE, { token: typeToken, name: typeToken.lexeme }),
       bindingClause
     });
-  };
+  }
 
-  // [N] <builtin_function_call>
-  const parseBuiltinFunctionCall = () => {
-    const token = advance();
-    consume(TOKEN_TYPES.DEL_LPAREN, "Expected '('");
-    const args = [];
-    if (!check(TOKEN_TYPES.DEL_RPAREN)) {
-      do {
-        args.push(parseExpression());
-      } while (match(TOKEN_TYPES.DEL_COMMA));
-    }
-    consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
-    
-    return createNode(AST_NODE_TYPES.BUILTIN_FUNCTION_CALL, {
-      builtin: createNode(AST_NODE_TYPES.BUILTIN_NAME, { token, name: token.lexeme }),
-      arguments: createNode(AST_NODE_TYPES.ARG_LIST, { args })
-    });
-  };
+  // ===========================================================================
+  // Expressions (Precedence Climbing)
+  // ===========================================================================
 
-  const parseJumpStatement = () => {
-    const token = advance();
-    return createNode(AST_NODE_TYPES.JUMP_STMT, { keyword: token, type: token.lexeme });
-  };
+  parseExpression() {
+    return this.parseLogicOr();
+  }
 
-  // [J] <function_call> (Helper for postfix)
-  const parseFunctionCall = (callee) => {
-    const args = [];
-    if (!check(TOKEN_TYPES.DEL_RPAREN)) {
-      do {
-        args.push(parseExpression());
-      } while (match(TOKEN_TYPES.DEL_COMMA));
-    }
-    consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
-    
-    return createNode(AST_NODE_TYPES.FUNCTION_CALL, {
-      function: callee,
-      arguments: createNode(AST_NODE_TYPES.ARG_LIST, { args })
-    });
-  };
-
-  // [L] <list_lit>
-  const parseListLiteral = () => {
-    const token = consume(TOKEN_TYPES.DEL_LBRACK);
-    const elements = [];
-    if (!check(TOKEN_TYPES.DEL_RBRACK)) {
-      do {
-        elements.push(parseExpression());
-      } while (match(TOKEN_TYPES.DEL_COMMA));
-    }
-    consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
-    
-    return createNode(AST_NODE_TYPES.LIST_LIT, {
-      token,
-      elements: createNode(AST_NODE_TYPES.ARRAY_ELEMENTS, { elements })
-    });
-  };
-
-  // [M] String Insertion System (SIS) Helper
-  const parseCompositeStringLiteral = () => {
-    const parts = [];
-    let fullContent = '';
-    const firstToken = peek();
-    
-    while (!isAtEnd()) {
-      const token = peek();
-      if (token.type === TOKEN_TYPES.STRING_LITERAL) {
-        advance();
-        const content = token.lexeme.slice(1, -1);
-        fullContent += content;
-        parts.push(createNode(AST_NODE_TYPES.STRING_CONTENT, { value: content }));
-      } else if (token.type === TOKEN_TYPES.SIS_MARKER) {
-        advance();
-        fullContent += token.lexeme;
-        const ident = token.lexeme.startsWith('@') ? token.lexeme.substring(1) : token.lexeme;
-        parts.push(createNode(AST_NODE_TYPES.STRING_INSERTION, {
-          identifier: createNode(AST_NODE_TYPES.IDENTIFIER, { name: ident })
-        }));
-      } else {
-        break;
-      }
-    }
-    
-    return createNode(AST_NODE_TYPES.STRING_LIT, {
-      token: firstToken,
-      content: parts.length > 0 ? parts : [createNode(AST_NODE_TYPES.STRING_CONTENT, { value: fullContent })]
-    });
-  };
-
-  // --- Expression Parsing (Precedence Climbing) [C] ---
-
-  const parseExpression = () => parseLogicOr();
-
-  const parseLogicOr = () => {
-    let left = parseLogicAnd();
-    while (match(TOKEN_TYPES.OP_OR)) {
-      const op = previous();
-      const right = parseLogicAnd();
-      left = createNode(AST_NODE_TYPES.LOGIC_OR, { left, operator: op.lexeme, right });
+  parseLogicOr() {
+    let left = this.parseLogicAnd();
+    while (this.match(TOKEN_TYPES.OP_OR)) {
+      left = this.createNode(AST_NODE_TYPES.LOGIC_OR, { left, operator: this.previous().lexeme, right: this.parseLogicAnd() });
     }
     return left;
-  };
+  }
 
-  const parseLogicAnd = () => {
-    let left = parseEquality();
-    while (match(TOKEN_TYPES.OP_AND)) {
-      const op = previous();
-      const right = parseEquality();
-      left = createNode(AST_NODE_TYPES.LOGIC_AND, { left, operator: op.lexeme, right });
+  parseLogicAnd() {
+    let left = this.parseEquality();
+    while (this.match(TOKEN_TYPES.OP_AND)) {
+      left = this.createNode(AST_NODE_TYPES.LOGIC_AND, { left, operator: this.previous().lexeme, right: this.parseEquality() });
     }
     return left;
-  };
+  }
 
-  const parseEquality = () => {
-    let left = parseRelational();
-    while (match(TOKEN_TYPES.OP_EQ, TOKEN_TYPES.OP_NEQ)) {
-      const op = previous();
-      const right = parseRelational();
-      left = createNode(AST_NODE_TYPES.EQUALITY, { left, operator: op.lexeme, right });
+  parseEquality() {
+    let left = this.parseRelational();
+    while (this.match(TOKEN_TYPES.OP_EQ, TOKEN_TYPES.OP_NEQ)) {
+      left = this.createNode(AST_NODE_TYPES.EQUALITY, { left, operator: this.previous().lexeme, right: this.parseRelational() });
     }
     return left;
-  };
+  }
 
-  const parseRelational = () => {
-    let left = parseAdditive();
-    while (match(TOKEN_TYPES.OP_LT, TOKEN_TYPES.OP_GT, TOKEN_TYPES.OP_LTE, TOKEN_TYPES.OP_GTE)) {
-      const op = previous();
-      const right = parseAdditive();
-      left = createNode(AST_NODE_TYPES.RELATIONAL, { left, operator: op.lexeme, right });
+  parseRelational() {
+    let left = this.parseAdditive();
+    while (this.match(TOKEN_TYPES.OP_LT, TOKEN_TYPES.OP_GT, TOKEN_TYPES.OP_LTE, TOKEN_TYPES.OP_GTE)) {
+      left = this.createNode(AST_NODE_TYPES.RELATIONAL, { left, operator: this.previous().lexeme, right: this.parseAdditive() });
     }
     return left;
-  };
+  }
 
-  const parseAdditive = () => {
-    let left = parseMultiplicative();
-    while (match(TOKEN_TYPES.OP_ADD, TOKEN_TYPES.OP_SUB)) {
-      const op = previous();
-      const right = parseMultiplicative();
-      left = createNode(AST_NODE_TYPES.ADDITIVE, { left, operator: op.lexeme, right });
+  parseAdditive() {
+    let left = this.parseMultiplicative();
+    while (this.match(TOKEN_TYPES.OP_ADD, TOKEN_TYPES.OP_SUB)) {
+      left = this.createNode(AST_NODE_TYPES.ADDITIVE, { left, operator: this.previous().lexeme, right: this.parseMultiplicative() });
     }
     return left;
-  };
+  }
 
-  const parseMultiplicative = () => {
-    let left = parseExponential();
-    while (match(TOKEN_TYPES.OP_MUL, TOKEN_TYPES.OP_DIV, TOKEN_TYPES.OP_INT_DIV, TOKEN_TYPES.OP_MOD)) {
-      const op = previous();
-      const right = parseExponential();
-      left = createNode(AST_NODE_TYPES.MULTIPLICATIVE, { left, operator: op.lexeme, right });
+  parseMultiplicative() {
+    let left = this.parseExponential();
+    while (this.match(TOKEN_TYPES.OP_MUL, TOKEN_TYPES.OP_DIV, TOKEN_TYPES.OP_INT_DIV, TOKEN_TYPES.OP_MOD)) {
+      left = this.createNode(AST_NODE_TYPES.MULTIPLICATIVE, { left, operator: this.previous().lexeme, right: this.parseExponential() });
     }
     return left;
-  };
+  }
 
-  const parseExponential = () => {
-    let left = parseUnary();
-    while (match(TOKEN_TYPES.OP_EXP)) {
-      const op = previous();
-      const right = parseUnary();
-      left = createNode(AST_NODE_TYPES.EXPONENTIAL, { left, operator: op.lexeme, right });
+  parseExponential() {
+    let left = this.parseUnary();
+    while (this.match(TOKEN_TYPES.OP_EXP)) {
+      left = this.createNode(AST_NODE_TYPES.EXPONENTIAL, { left, operator: this.previous().lexeme, right: this.parseUnary() });
     }
     return left;
-  };
+  }
 
-  const parseUnary = () => {
-    if (match(TOKEN_TYPES.OP_NOT, TOKEN_TYPES.OP_ADD, TOKEN_TYPES.OP_SUB, TOKEN_TYPES.OP_INC, TOKEN_TYPES.OP_DEC)) {
-      const op = previous();
-      const right = parseUnary();
-      return createNode(AST_NODE_TYPES.UNARY, { operator: op.lexeme, expression: right });
+  parseUnary() {
+    if (this.match(TOKEN_TYPES.OP_NOT, TOKEN_TYPES.OP_ADD, TOKEN_TYPES.OP_SUB, TOKEN_TYPES.OP_INC, TOKEN_TYPES.OP_DEC)) {
+      return this.createNode(AST_NODE_TYPES.UNARY, { operator: this.previous().lexeme, expression: this.parseUnary() });
     }
-    return parsePostfix();
-  };
+    return this.parsePostfix();
+  }
 
-  // [J] & [L] Postfix: Calls, Indexing, Member Access
-  const parsePostfix = () => {
-    let expr = parsePrimary();
+  parsePostfix() {
+    let expr = this.parsePrimary();
 
     while (true) {
-      if (match(TOKEN_TYPES.DEL_LBRACK)) {
-        const index = parseExpression();
-        consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
-        expr = createNode(AST_NODE_TYPES.LIST_ACCESS, { array: expr, index });
-      } else if (match(TOKEN_TYPES.DEL_PERIOD)) {
-        const fieldToken = consume(TOKEN_TYPES.IDENTIFIER, "Expected field name");
-        expr = createNode(AST_NODE_TYPES.FIELD_ACCESS, { 
+      if (this.match(TOKEN_TYPES.DEL_LBRACK)) {
+        const index = this.parseExpression();
+        this.consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
+        expr = this.createNode(AST_NODE_TYPES.LIST_ACCESS, { array: expr, index });
+      } else if (this.match(TOKEN_TYPES.DEL_PERIOD)) {
+        const fieldToken = this.consume(TOKEN_TYPES.IDENTIFIER, "Expected field name");
+        expr = this.createNode(AST_NODE_TYPES.FIELD_ACCESS, { 
           object: expr, 
-          field: createNode(AST_NODE_TYPES.IDENTIFIER, { token: fieldToken, name: fieldToken?.lexeme })
+          field: this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: fieldToken, name: fieldToken?.lexeme })
         });
-      } else if (match(TOKEN_TYPES.DEL_LPAREN)) {
-        // Function Call via Identifier
-        expr = parseFunctionCall(expr);
+      } else if (this.match(TOKEN_TYPES.DEL_LPAREN)) {
+        expr = this.parseFunctionCall(expr);
       } else {
         break;
       }
     }
     return expr;
-  };
+  }
 
-  const parsePrimary = () => {
-    if (match(TOKEN_TYPES.NUMBER_LITERAL)) {
-      return createNode(AST_NODE_TYPES.NUMBER_LIT, { token: previous(), value: parseFloat(previous().lexeme) });
+  parsePrimary() {
+    if (this.match(TOKEN_TYPES.NUMBER_LITERAL)) {
+      return this.createNode(AST_NODE_TYPES.NUMBER_LIT, { token: this.previous(), value: parseFloat(this.previous().lexeme) });
     }
-    if (match(TOKEN_TYPES.DECIMAL_LITERAL)) {
-      return createNode(AST_NODE_TYPES.DECIMAL_LIT, { token: previous(), value: parseFloat(previous().lexeme) });
+    if (this.match(TOKEN_TYPES.DECIMAL_LITERAL)) {
+      return this.createNode(AST_NODE_TYPES.DECIMAL_LIT, { token: this.previous(), value: parseFloat(this.previous().lexeme) });
     }
-    if (check(TOKEN_TYPES.STRING_LITERAL) || check(TOKEN_TYPES.SIS_MARKER)) {
-      return parseCompositeStringLiteral();
+    if (this.check(TOKEN_TYPES.STRING_LITERAL) || this.check(TOKEN_TYPES.SIS_MARKER)) {
+      return this.parseCompositeStringLiteral();
     }
-    if (match(TOKEN_TYPES.RESERVED_TRUE)) {
-      return createNode(AST_NODE_TYPES.BOOL_LIT, { token: previous(), value: true });
+    if (this.match(TOKEN_TYPES.RESERVED_TRUE)) return this.createNode(AST_NODE_TYPES.BOOL_LIT, { value: true });
+    if (this.match(TOKEN_TYPES.RESERVED_FALSE)) return this.createNode(AST_NODE_TYPES.BOOL_LIT, { value: false });
+    if (this.match(TOKEN_TYPES.RESERVED_NULL)) return this.createNode(AST_NODE_TYPES.NULL_LITERAL, { value: null });
+    
+    if (this.check(TOKEN_TYPES.DEL_LBRACK)) return this.parseListLiteral();
+    
+    if (this.match(TOKEN_TYPES.IDENTIFIER)) {
+      return this.createNode(AST_NODE_TYPES.IDENTIFIER, { token: this.previous(), name: this.previous().lexeme });
     }
-    if (match(TOKEN_TYPES.RESERVED_FALSE)) {
-      return createNode(AST_NODE_TYPES.BOOL_LIT, { token: previous(), value: false });
-    }
-    if (match(TOKEN_TYPES.RESERVED_NULL)) {
-      return createNode(AST_NODE_TYPES.NULL_LITERAL, { token: previous(), value: null });
-    }
-    if (check(TOKEN_TYPES.DEL_LBRACK)) {
-      return parseListLiteral();
-    }
-    if (match(TOKEN_TYPES.IDENTIFIER)) {
-      return createNode(AST_NODE_TYPES.IDENTIFIER, { token: previous(), name: previous().lexeme });
-    }
-    if (match(TOKEN_TYPES.DEL_LPAREN)) {
-      const expr = parseExpression();
-      consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+    
+    if (this.match(TOKEN_TYPES.DEL_LPAREN)) {
+      const expr = this.parseExpression();
+      this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
       return expr;
     }
 
-    // Error
-    const token = peek();
-    errors.push({ message: `Unexpected token in expression: ${token?.lexeme}`, line: token?.line, column: token?.column });
-    advance(); // Recover
+    const token = this.peek();
+    this.addError(`Unexpected token in expression: ${token?.lexeme}`, token);
+    this.advance(); // Recovery
     return null;
-  };
-
-  // --- Execution ---
-  try {
-    const ast = parseProgram();
-    return {
-      ast: errors.length > 0 ? null : ast,
-      errors: errors.length > 0 ? errors : undefined,
-      success: errors.length === 0
-    };
-  } catch (e) {
-    return {
-      ast: null,
-      errors: [{ message: `Internal Parser Error: ${e.message}`, line: 0, column: 0 }],
-      success: false
-    };
   }
+
+  parseCompositeStringLiteral() {
+    const parts = [];
+    const firstToken = this.peek();
+    let fullContent = '';
+
+    while (!this.isAtEnd()) {
+      if (this.match(TOKEN_TYPES.STRING_LITERAL)) {
+        const content = this.previous().lexeme.slice(1, -1);
+        fullContent += content;
+        parts.push(this.createNode(AST_NODE_TYPES.STRING_CONTENT, { value: content }));
+      } else if (this.match(TOKEN_TYPES.SIS_MARKER)) {
+        const token = this.previous();
+        fullContent += token.lexeme;
+        const ident = token.lexeme.startsWith('@') ? token.lexeme.substring(1) : token.lexeme;
+        parts.push(this.createNode(AST_NODE_TYPES.STRING_INSERTION, {
+          identifier: this.createNode(AST_NODE_TYPES.IDENTIFIER, { name: ident })
+        }));
+      } else {
+        break;
+      }
+    }
+    
+    return this.createNode(AST_NODE_TYPES.STRING_LIT, {
+      token: firstToken,
+      content: parts.length > 0 ? parts : [this.createNode(AST_NODE_TYPES.STRING_CONTENT, { value: fullContent })]
+    });
+  }
+
+  parseListLiteral() {
+    const token = this.consume(TOKEN_TYPES.DEL_LBRACK);
+    const elements = [];
+    if (!this.check(TOKEN_TYPES.DEL_RBRACK)) {
+      do {
+        elements.push(this.parseExpression());
+      } while (this.match(TOKEN_TYPES.DEL_COMMA));
+    }
+    this.consume(TOKEN_TYPES.DEL_RBRACK, "Expected ']'");
+    
+    return this.createNode(AST_NODE_TYPES.LIST_LIT, {
+      token,
+      elements: this.createNode(AST_NODE_TYPES.ARRAY_ELEMENTS, { elements })
+    });
+  }
+
+  parseFunctionCall(callee) {
+    const args = [];
+    if (!this.check(TOKEN_TYPES.DEL_RPAREN)) {
+      do {
+        args.push(this.parseExpression());
+      } while (this.match(TOKEN_TYPES.DEL_COMMA));
+    }
+    this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+    
+    return this.createNode(AST_NODE_TYPES.FUNCTION_CALL, {
+      function: callee,
+      arguments: this.createNode(AST_NODE_TYPES.ARG_LIST, { args })
+    });
+  }
+
+  parseBuiltinFunctionCall() {
+    const token = this.advance();
+    this.consume(TOKEN_TYPES.DEL_LPAREN, "Expected '('");
+    const args = [];
+    if (!this.check(TOKEN_TYPES.DEL_RPAREN)) {
+      do {
+        args.push(this.parseExpression());
+      } while (this.match(TOKEN_TYPES.DEL_COMMA));
+    }
+    this.consume(TOKEN_TYPES.DEL_RPAREN, "Expected ')'");
+    
+    return this.createNode(AST_NODE_TYPES.BUILTIN_FUNCTION_CALL, {
+      builtin: this.createNode(AST_NODE_TYPES.BUILTIN_NAME, { token, name: token.lexeme }),
+      arguments: this.createNode(AST_NODE_TYPES.ARG_LIST, { args })
+    });
+  }
+}
+
+// --- Main Export ---
+
+// Public interface for AST generation.
+export const buildAST = (tokens) => {
+  const parser = new ASTParser(tokens);
+  const ast = parser.parse();
+  
+  return {
+    ast: parser.errors.length > 0 ? null : ast,
+    errors: parser.errors.length > 0 ? parser.errors : undefined,
+    success: parser.errors.length === 0
+  };
 };
