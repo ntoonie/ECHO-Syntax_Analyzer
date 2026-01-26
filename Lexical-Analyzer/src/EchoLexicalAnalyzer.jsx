@@ -724,7 +724,8 @@ END`;
       OP_LOG: 'bg-teal-300 text-teal-900',
       OP_REL: 'bg-teal-400 text-teal-900',
       CMT: 'bg-emerald-50 text-emerald-700',
-      SIS: 'text-yellow-700 bg-yellow-50',
+      SIS: 'text-yellow-700 bg-yellow-50', // legacy, for backward compatibility
+      STRING_INSERTION: 'text-yellow-700 bg-yellow-50',
       DEL: 'bg-slate-100 text-slate-700',
       DEL_LPAR: 'bg-slate-100 text-slate-700',
       DEL_RPAR: 'bg-slate-100 text-slate-700',

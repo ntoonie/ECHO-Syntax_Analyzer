@@ -320,19 +320,41 @@ export function parseTokenStream(tokenStream) {
   const parseEcho = () => {
     advance(); // KW_P
 
-    // Helper to fold adjacent segments into a concatenation chain
-    const foldConcat = (segments) => {
+    // DEBUG: Print the next 10 tokens for echo statement
+    console.log('DEBUG: Next 10 tokens for echo:', tokenTypes.slice(i, i+10));
+
+    // Helper to fold adjacent STR and SIS tokens into a single interpolated string
+    const foldInterpolatedString = (segments) => {
       if (!segments || segments.length === 0) return null;
-      let acc = segments[0];
-      for (let idx = 1; idx < segments.length; idx++) {
-        acc = {
-          type: 'BINARY_EXPR',
-          op: { type: 'OP_AR', lexeme: '+' },
-          left: acc,
-          right: segments[idx]
-        };
+      // Only allow STR and VAR_REFERENCE (from SIS) for interpolation
+      let allSimple = segments.every(seg => seg.type === 'STRING_LITERAL' || seg.type === 'VAR_REFERENCE');
+      if (allSimple) {
+        // Build a single string with variable insertions
+        let result = '';
+        for (const seg of segments) {
+          if (seg.type === 'STRING_LITERAL') {
+            let val = seg.value;
+            if (typeof val === 'object' && val.lexeme) val = val.lexeme;
+            if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+            result += val;
+          } else if (seg.type === 'VAR_REFERENCE') {
+            result += `@${seg.name}`;
+          }
+        }
+        return { type: 'STRING_LITERAL', value: '"' + result + '"' };
+      } else {
+        // Fallback to binary + chain for mixed types
+        let acc = segments[0];
+        for (let idx = 1; idx < segments.length; idx++) {
+          acc = {
+            type: 'BINARY_EXPR',
+            op: { type: 'OP_AR', lexeme: '+' },
+            left: acc,
+            right: segments[idx]
+          };
+        }
+        return acc;
       }
-      return acc;
     };
 
     const groups = [];
@@ -344,17 +366,30 @@ export function parseTokenStream(tokenStream) {
       if (match('KW_END', 'KW_T', 'KW_L', 'KW_C', 'KW_P', 'KW_R')) {
         break;
       }
-      
       // Check if ID is start of assignment
       if (match('ID')) {
         const nextType = peekNext();
         if (nextType === 'OP_ASG') break; // Assignment starts
       }
-      
       const before = i;
-      const expr = parseExpression();
-      if (expr) current.push(expr);
-
+      // Special: collect adjacent STR and SIS as a single interpolated string
+      if (match('STR', 'STR_LITERAL', 'SIS')) {
+        // Collect all adjacent STR/STR_LITERAL/SIS tokens
+        const segs = [];
+        while (match('STR', 'STR_LITERAL', 'SIS')) {
+          if (match('STR', 'STR_LITERAL')) {
+            segs.push(parsePrimary());
+          } else if (match('SIS')) {
+            segs.push(parsePrimary());
+          }
+        }
+        if (segs.length > 0) {
+          current.push(foldInterpolatedString(segs));
+        }
+      } else {
+        const expr = parseExpression();
+        if (expr) current.push(expr);
+      }
       // Comma-separated arguments finalize current group
       if (match('DEL_COMMA')) {
         advance();
@@ -362,12 +397,10 @@ export function parseTokenStream(tokenStream) {
         current = [];
         continue;
       }
-
       // Implicit concatenation for adjacent literals/insertions only
       if (match('STR_LITERAL','STR','NUM','DEC','NUM_LITERAL','DEC_LITERAL','BOOL','BOOL_LITERAL')) {
         continue;
       }
-
       // Safety: prevent infinite loop if nothing was consumed
       if (i === before) break;
       break;
@@ -376,7 +409,7 @@ export function parseTokenStream(tokenStream) {
     if (current.length > 0) groups.push(current);
 
     const args = groups
-      .map(g => g.length === 0 ? null : (g.length === 1 ? g[0] : foldConcat(g)))
+      .map(g => g.length === 0 ? null : (g.length === 1 ? g[0] : foldInterpolatedString(g)))
       .filter(Boolean);
 
     return {
@@ -957,13 +990,15 @@ export function parseTokenStream(tokenStream) {
     while (match('OP_AR')) {
       const op = advanceToken();
       const opLex = typeof op === 'object' ? op.lexeme : op;
+      if (opLex !== '+' && opLex !== '-') {
+        // Not an additive operator, put token back and break
+        i--;
+        break;
+      }
       const right = parseMultiplicative();
-      
-      // Check if right side is missing (incomplete binary expression)
       if (!right || right.type === 'UNKNOWN') {
         throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
       }
-      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
 
@@ -976,13 +1011,15 @@ export function parseTokenStream(tokenStream) {
     while (match('OP_AR')) {
       const op = advanceToken();
       const opLex = typeof op === 'object' ? op.lexeme : op;
+      if (opLex !== '*' && opLex !== '/' && opLex !== '%') {
+        // Not a multiplicative operator, put token back and break
+        i--;
+        break;
+      }
       const right = parseExponentiation();
-      
-      // Check if right side is missing (incomplete binary expression)
       if (!right || right.type === 'UNKNOWN') {
         throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
       }
-      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
 
@@ -995,13 +1032,15 @@ export function parseTokenStream(tokenStream) {
     while (match('OP_AR')) {
       const op = advanceToken();
       const opLex = typeof op === 'object' ? op.lexeme : op;
+      if (opLex !== '^') {
+        // Not an exponentiation operator, put token back and break
+        i--;
+        break;
+      }
       const right = parseUnary();
-      
-      // Check if right side is missing (incomplete binary expression)
       if (!right || right.type === 'UNKNOWN') {
         throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
       }
-      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
 
@@ -1347,8 +1386,9 @@ export function indentAst(node) {
       case 'BOOLEAN_LITERAL':
         return `BOOL ${getLexeme(expr.value)}`;
       case 'VAR_REFERENCE': {
+        // Just output the variable name as a string, no VAR_REFERENCE label
         const varName = typeof expr.name === 'object' ? (expr.name.lexeme ?? expr.name) : expr.name;
-        return `VAR_REFERENCE ${varName}`;
+        return varName;
       }
       case 'ARRAY_LITERAL': {
         const elems = (expr.elements || []).map(e => formatExpr(e)).join(', ');
@@ -1455,7 +1495,34 @@ export function indentAst(node) {
         lines.push(pad + 'OUT_STATEMENT');
         lines.push(IND.repeat(depth + 1) + 'OUT');
         (n.args || []).forEach(arg => {
-          lines.push(IND.repeat(depth + 2) + 'EXPRESSION ' + formatExpr(arg));
+          // If the argument is a BINARY_EXPR with +, flatten it for string interpolation
+          if (arg.type === 'BINARY_EXPR' && getLexeme(arg.op) === '+') {
+            // Recursively flatten left and right
+            const flatten = (expr) => {
+              if (expr.type === 'BINARY_EXPR' && getLexeme(expr.op) === '+') {
+                return [...flatten(expr.left), ...flatten(expr.right)];
+              } else if (expr.type === 'STRING_LITERAL') {
+                // Remove STR and surrounding quotes
+                let val = formatExpr(expr);
+                if (val.startsWith('STR ')) val = val.slice(4);
+                if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+                return [val];
+              } else if (expr.type === 'VAR_REFERENCE') {
+                return ["@" + formatExpr(expr)];
+              } else {
+                return [formatExpr(expr)];
+              }
+            };
+            const parts = flatten(arg);
+            const joined = parts.join('');
+            lines.push(IND.repeat(depth + 2) + 'EXPRESSION STR "' + joined + '"');
+          } else if (arg.type === 'STRING_LITERAL') {
+            lines.push(IND.repeat(depth + 2) + 'EXPRESSION ' + formatExpr(arg));
+          } else if (arg.type === 'VAR_REFERENCE') {
+            lines.push(IND.repeat(depth + 2) + 'EXPRESSION STR "@' + formatExpr(arg) + '"');
+          } else {
+            lines.push(IND.repeat(depth + 2) + 'EXPRESSION ' + formatExpr(arg));
+          }
         });
         break;
       }
