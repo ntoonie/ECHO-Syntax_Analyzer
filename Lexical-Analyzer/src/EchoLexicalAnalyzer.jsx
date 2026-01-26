@@ -162,6 +162,16 @@ const LexicalAnalyzerTemplate = () => {
     by: TOKEN_TYPES.NOISE_WORD
   };
 
+  // Built-in functions
+  const BUILTIN_FUNCTIONS = new Set([
+    'sum',
+    'median',
+    'mode',
+    'average',
+    'iseven',
+    'isodd'
+  ]);
+
   // ========================================
   // E.C.H.O Lexical Analysis Logic
   // ========================================
@@ -452,9 +462,15 @@ const LexicalAnalyzerTemplate = () => {
         }
         // Check if word is a keyword (case-insensitive matching)
         const lowerWord = word.toLowerCase();
-        const tokenType = KEYWORDS[lowerWord] || TOKEN_TYPES.IDENTIFIER;
+        const kwType = KEYWORDS[lowerWord];
         
-        tokenList.push({ line, type: tokenType, lexeme: word });
+        if (BUILTIN_FUNCTIONS.has(lowerWord)) {
+          tokenList.push({ line, type: TOKEN_TYPES.IDENTIFIER, lexeme: word, builtin: true });
+        } else if (kwType) {
+          tokenList.push({ line, type: kwType, lexeme: word });
+        } else {
+          tokenList.push({ line, type: TOKEN_TYPES.IDENTIFIER, lexeme: word });
+        }
         continue;
       }
 

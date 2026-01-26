@@ -1,6 +1,13 @@
-
-
 export function parseTokenStream(tokenStream) {
+
+  const BUILTIN_FUNCTIONS = new Set([
+    'sum',
+    'median',
+    'mode',
+    'average',
+    'isEven',
+    'isOdd'
+  ]);
 
   let rawTokens = tokenStream;
 
@@ -27,8 +34,14 @@ export function parseTokenStream(tokenStream) {
     return undefined;
   };
 
-  if (!Array.isArray(rawTokens)) {
-    throw new Error('Token stream must be an array of tokens');
+  // Pre-scan for lexical errors (ERR or UNK token types)
+  for (let idx = 0; idx < rawTokens.length; idx++) {
+    const tok = rawTokens[idx];
+    const tokenType = tok?.type || (typeof tok === 'string' ? tok : '');
+    if (tokenType === 'ERR' || tokenType === 'UNK') {
+      const errMsg = tok?.lexeme || 'Unterminated string literal';
+      throw new Error(`Lexical error: ${errMsg}`);
+    }
   }
 
   const tokenTypes = rawTokens;
@@ -39,21 +52,23 @@ export function parseTokenStream(tokenStream) {
   const peekToken = () => tokenTypes[i];
   const peek = () => toType(tokenTypes[i]);
   const peekNext = () => toType(tokenTypes[i + 1]);
-  
+
   const eatToken = (expected) => {
     const current = toType(tokenTypes[i]);
     if (current !== expected) {
-      const error = `Expected ${expected}, got ${current}`;
+      const actualToken = current || (i >= tokenTypes.length ? 'end of input' : 'unknown token');
+      const error = `Expected ${expected}, got ${actualToken}`;
       errors.push(error);
       throw new Error(error);
     }
     return tokenTypes[i++];
   };
-  
+
   const eat = (expected) => {
     const current = toType(tokenTypes[i]);
     if (current !== expected) {
-      const error = `Expected ${expected}, got ${current}`;
+      const actualToken = current || (i >= tokenTypes.length ? 'end of input' : 'unknown token');
+      const error = `Expected ${expected}, got ${actualToken}`;
       errors.push(error);
       throw new Error(error);
     }
@@ -69,7 +84,7 @@ export function parseTokenStream(tokenStream) {
   const advance = () => {
     return toType(tokenTypes[i++]);
   };
-  
+
   const advanceToken = () => {
     return tokenTypes[i++];
   };
@@ -79,29 +94,41 @@ export function parseTokenStream(tokenStream) {
     const decls = [];
     let startToken = null;
     let endToken = null;
-    
+
     try {
       // Parse top-level declarations (functions, etc.) before start block
       while (i < tokenTypes.length && !match('KW_START')) {
         const stmt = parseStatement();
         if (stmt) decls.push(stmt);
       }
-      
+
+      // Check if start keyword exists
+      if (!match('KW_START')) {
+        const error = 'Program must begin with "start" keyword';
+        throw new Error(error);
+      }
+
       // Now expect start keyword
       startToken = eatToken('KW_START');
-      
+
       // Parse statements inside start block
       while (
         i < tokenTypes.length &&
-        !(peek() === 'KW_END' && !['KW_C','KW_L','KW_R','KW_P'].includes(peekNext()))
+        !(peek() === 'KW_END' && !['KW_C', 'KW_L', 'KW_R', 'KW_P'].includes(peekNext()))
       ) {
         const stmt = parseStatement();
         if (stmt) decls.push(stmt);
       }
-      
+
+      // Check if end keyword exists
+      if (!match('KW_END')) {
+        const error = 'Program must end with "end" keyword';
+        throw new Error(error);
+      }
+
       // Expect closing end
       endToken = eatToken('KW_END');
-      
+
       return {
         type: 'PROGRAM',
         startToken,
@@ -121,30 +148,39 @@ export function parseTokenStream(tokenStream) {
   const parseStatement = () => {
     // Skip noise words
     while (match('NW')) advance();
-    
+
     if (i >= tokenTypes.length) return null;
-    
+
     const current = peek();
     const currentToken = peekToken();
     const lex = (typeof currentToken === 'object' && currentToken.lexeme) ? currentToken.lexeme.toLowerCase() : '';
+
+    // Check for lexical errors (ERR token type)
+    if (match('ERR')) {
+      const errMsg = typeof currentToken === 'object' ? currentToken.lexeme : current;
+      advance();
+      throw new Error(`Lexical error: ${errMsg}`);
+    }
 
     // Variable declaration: KW_T (data types)
     if (match('KW_T')) {
       return parseDeclaration();
     }
-    
+
     // Assignment (ID followed by assignment operator)
     if (match('ID') && peekNext() === 'OP_ASG') {
-      return parseAssignment();
+      const idToken = peekToken();
+      const varName = typeof idToken === 'object' ? idToken.lexeme : idToken;
+      throw new Error(`Undeclared variable '${varName}': use 'number ${varName} = value' to declare first, not just '${varName} = value'`);
     }
-    
+
     // Echo / Input / Function (KW_P)
     if (match('KW_P')) {
       if (lex === 'input') return parseInput();
       if (lex === 'function') return parseFunctionDef();
       return parseEcho();
     }
-    
+
     // Conditionals (KW_C)
     if (match('KW_C')) {
       if (lex === 'switch') return parseSwitchStatement();
@@ -153,7 +189,7 @@ export function parseTokenStream(tokenStream) {
       advance();
       return null;
     }
-    
+
     // Loops (KW_L)
     if (match('KW_L')) {
       if (lex === 'for') return parseForLoop();
@@ -162,7 +198,7 @@ export function parseTokenStream(tokenStream) {
       advance();
       return null;
     }
-    
+
     // Reserved (KW_R)
     if (match('KW_R')) {
       if (lex === 'return') return parseReturn();
@@ -171,27 +207,27 @@ export function parseTokenStream(tokenStream) {
       advanceToken();
       return null;
     }
-    
+
     // Expression statement
     if (match('ID', 'OP_UN', 'NUM_LITERAL', 'DEC_LITERAL', 'STR_LITERAL', 'NUM', 'DEC', 'STR', 'BOOL')) {
       return parseExpressionStatement();
     }
-    
+
     // Unknown token - skip it
     if (current) {
       advance();
       return null;
     }
-    
+
     return null;
   };
 
   const parseDeclaration = () => {
     const typeToken = advanceToken(); // KW_T
     const type = toType(typeToken);
-    
+
     const declarations = [];
-    
+
     // Parse first variable
     let nameToken = null;
     let name = 'unknown';
@@ -199,43 +235,49 @@ export function parseTokenStream(tokenStream) {
       nameToken = advanceToken();
       name = typeof nameToken === 'object' ? nameToken.lexeme : nameToken;
     }
-    
+
     let value = null;
     if (match('OP_ASG')) {
       advance();
       value = parseExpression();
+      if (!value || value.type === 'UNKNOWN') {
+        throw new Error(`Incomplete expression in assignment for variable '${name}': expected operand after assignment operator`);
+      }
     }
-    
+
     declarations.push({
       nameToken,
       name,
       value
     });
-    
+
     // Parse additional comma-separated variables
     while (match('DEL_COMMA')) {
       advance(); // consume comma
-      
+
       nameToken = null;
       name = 'unknown';
       if (match('ID', 'BOOL')) {
         nameToken = advanceToken();
         name = typeof nameToken === 'object' ? nameToken.lexeme : nameToken;
       }
-      
+
       value = null;
       if (match('OP_ASG')) {
         advance();
         value = parseExpression();
+        if (!value || value.type === 'UNKNOWN') {
+          throw new Error(`Incomplete expression in assignment for variable '${name}': expected operand after assignment operator`);
+        }
       }
-      
+
       declarations.push({
         nameToken,
         name,
         value
       });
     }
-    
+
     return {
       type: 'DECLARATION',
       typeToken,
@@ -247,12 +289,15 @@ export function parseTokenStream(tokenStream) {
   const parseAssignment = () => {
     const nameToken = advanceToken(); // ID
     const name = typeof nameToken === 'object' ? nameToken.lexeme : nameToken;
-    
+
     const opToken = advanceToken(); // OP_ASG or compound assignment
     const op = toType(opToken);
-    
+
     const value = parseExpression();
-    
+    if (!value) {
+      throw new Error(`Invalid expression on right side of assignment for variable '${name}'`);
+    }
+
     return {
       type: 'ASSIGNMENT',
       nameToken,
@@ -265,20 +310,55 @@ export function parseTokenStream(tokenStream) {
 
   const parseEcho = () => {
     advance(); // KW_P
-    
-    const args = [];
-    
-    // Parse expression or list of expressions
-    if (!match('KW_END') && i < tokenTypes.length) {
-      args.push(parseExpression());
-      
-      // Handle comma-separated expressions
-      while (match('DEL_COMMA')) {
-        advance();
-        args.push(parseExpression());
+
+    // Helper to fold adjacent segments into a concatenation chain
+    const foldConcat = (segments) => {
+      if (!segments || segments.length === 0) return null;
+      let acc = segments[0];
+      for (let idx = 1; idx < segments.length; idx++) {
+        acc = {
+          type: 'BINARY_EXPR',
+          op: { type: 'OP_AR', lexeme: '+' },
+          left: acc,
+          right: segments[idx]
+        };
       }
+      return acc;
+    };
+
+    const groups = [];
+    let current = [];
+
+    // Consume one or more expressions until we hit end or an unmatched token.
+    while (i < tokenTypes.length && !match('KW_END')) {
+      const before = i;
+      const expr = parseExpression();
+      if (expr) current.push(expr);
+
+      // Comma-separated arguments finalize current group
+      if (match('DEL_COMMA')) {
+        advance();
+        groups.push(current);
+        current = [];
+        continue;
+      }
+
+      // Implicit concatenation for adjacent literals/insertions/ids
+      if (match('SIS','STR_LITERAL','STR','ID','NUM','DEC','NUM_LITERAL','DEC_LITERAL','BOOL','BOOL_LITERAL')) {
+        continue;
+      }
+
+      // Safety: prevent infinite loop if nothing was consumed
+      if (i === before) break;
+      break;
     }
-    
+
+    if (current.length > 0) groups.push(current);
+
+    const args = groups
+      .map(g => g.length === 0 ? null : (g.length === 1 ? g[0] : foldConcat(g)))
+      .filter(Boolean);
+
     return {
       type: 'ECHO_STMT',
       args
@@ -302,11 +382,11 @@ export function parseTokenStream(tokenStream) {
 
   const parseIfStatement = () => {
     advance(); // KW_C
-    
+
     if (match('DEL_LPAR')) advance();
     const condition = parseExpression();
     if (match('DEL_RPAR')) advance();
-    
+
     const thenBody = [];
     // Parse until we hit 'else', 'elseif', or 'end if'
     while (i < tokenTypes.length) {
@@ -323,23 +403,23 @@ export function parseTokenStream(tokenStream) {
           break;
         }
       }
-      
+
       const stmt = parseStatement();
       if (stmt) thenBody.push(stmt);
     }
-    
+
     const elseIfs = [];
     while (match('KW_C')) {
       const currentToken = peekToken();
       const lex = (typeof currentToken === 'object' && currentToken.lexeme) ? currentToken.lexeme.toLowerCase() : '';
-      
+
       if (lex === 'elseif') {
         advance(); // ELSEIF
-        
+
         if (match('DEL_LPAR')) advance();
         const elifCond = parseExpression();
         if (match('DEL_RPAR')) advance();
-        
+
         const elifBody = [];
         while (i < tokenTypes.length) {
           if (match('KW_C')) {
@@ -354,25 +434,25 @@ export function parseTokenStream(tokenStream) {
               break;
             }
           }
-          
+
           const stmt = parseStatement();
           if (stmt) elifBody.push(stmt);
         }
-        
+
         elseIfs.push({ condition: elifCond, body: elifBody });
       } else {
         break;
       }
     }
-    
+
     let elseBody = null;
     if (match('KW_C')) {
       const currentToken = peekToken();
       const lex = (typeof currentToken === 'object' && currentToken.lexeme) ? currentToken.lexeme.toLowerCase() : '';
-      
+
       if (lex === 'else') {
         advance(); // ELSE
-        
+
         elseBody = [];
         while (i < tokenTypes.length) {
           if (match('KW_END')) {
@@ -380,7 +460,7 @@ export function parseTokenStream(tokenStream) {
               break;
             }
           }
-          
+
           const stmt = parseStatement();
           if (stmt) elseBody.push(stmt);
         }
@@ -390,7 +470,7 @@ export function parseTokenStream(tokenStream) {
     // Consume closing 'end if'
     if (match('KW_END')) advance();
     if (match('KW_C')) advance();
-    
+
     return {
       type: 'IF_STMT',
       condition,
@@ -402,16 +482,16 @@ export function parseTokenStream(tokenStream) {
 
   const parseSwitchStatement = () => {
     advance(); // KW_C (switch keyword)
-    
+
     if (match('DEL_LPAR')) advance();
     const expr = parseExpression();
     if (match('DEL_RPAR')) advance();
-    
+
     if (match('DEL_LBRACE')) advance();
-    
+
     const cases = [];
     let defaultBody = null;
-    
+
     // Parse cases and default until 'end switch'
     while (i < tokenTypes.length) {
       // Check for 'case' keyword
@@ -420,14 +500,14 @@ export function parseTokenStream(tokenStream) {
         const currentLex = (typeof currentToken === 'object' && currentToken.lexeme)
           ? currentToken.lexeme.toLowerCase()
           : '';
-        
+
         if (currentLex === 'case') {
           advance(); // case keyword
-          
+
           const value = parseExpression();
-          
+
           if (match('DEL_COL')) advance();
-          
+
           const body = [];
           // Parse statements until next case, default, or end switch
           while (i < tokenTypes.length) {
@@ -436,38 +516,38 @@ export function parseTokenStream(tokenStream) {
               const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
                 ? nextToken.lexeme.toLowerCase()
                 : '';
-              
+
               if (nextLex === 'case' || nextLex === 'default') {
                 break;
               }
             }
-            
+
             if (match('KW_END')) {
               const nextToken = tokenTypes[i + 1];
               const nextType = toType(nextToken);
               const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
                 ? nextToken.lexeme.toLowerCase()
                 : '';
-              
+
               if (nextType === 'KW_C' && nextLex === 'switch') {
                 break;
               }
             }
-            
+
             if (match('DEL_RBRACE')) {
               break;
             }
-            
+
             const stmt = parseStatement();
             if (stmt) body.push(stmt);
           }
-          
+
           cases.push({ value, body });
         } else if (currentLex === 'default') {
           advance(); // default keyword
-          
+
           if (match('DEL_COL')) advance();
-          
+
           defaultBody = [];
           // Parse statements until end switch or closing brace
           while (i < tokenTypes.length) {
@@ -477,16 +557,16 @@ export function parseTokenStream(tokenStream) {
               const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
                 ? nextToken.lexeme.toLowerCase()
                 : '';
-              
+
               if (nextType === 'KW_C' && nextLex === 'switch') {
                 break;
               }
             }
-            
+
             if (match('DEL_RBRACE')) {
               break;
             }
-            
+
             const stmt = parseStatement();
             if (stmt) defaultBody.push(stmt);
           }
@@ -497,7 +577,7 @@ export function parseTokenStream(tokenStream) {
         const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
           ? nextToken.lexeme.toLowerCase()
           : '';
-        
+
         if (nextType === 'KW_C' && nextLex === 'switch') {
           break; // End of switch
         }
@@ -508,13 +588,13 @@ export function parseTokenStream(tokenStream) {
         advance();
       }
     }
-    
+
     if (match('DEL_RBRACE')) advance();
-    
+
     // Consume closing 'end switch'
     if (match('KW_END')) advance();
     if (match('KW_C')) advance();
-    
+
     return {
       type: 'SWITCH_STMT',
       expr,
@@ -525,7 +605,7 @@ export function parseTokenStream(tokenStream) {
 
   const parseForLoop = () => {
     advance(); // KW_L (for keyword)
-    
+
     // Get iterator variable
     let iteratorToken = null;
     let iterator = 'i';
@@ -533,31 +613,31 @@ export function parseTokenStream(tokenStream) {
       iteratorToken = advanceToken();
       iterator = typeof iteratorToken === 'object' ? iteratorToken.lexeme : iteratorToken;
     }
-    
+
     // Expect assignment operator (=)
     if (match('OP_ASG')) {
       advance();
     }
-    
+
     // Parse start value
     const start = parseExpression();
-    
+
     // Expect TO keyword (noise word)
     if (match('NW')) advance();
-    
+
     // Parse end value
     const end = parseExpression();
-    
+
     // Parse optional step with BY keyword
     let step = null;
     if (match('NW')) { // BY keyword
       advance();
       step = parseExpression();
     }
-    
+
     // Handle optional opening brace
     if (match('DEL_LBRACE')) advance();
-    
+
     const body = [];
     // Parse body until we hit 'end for'
     while (i < tokenTypes.length) {
@@ -565,29 +645,29 @@ export function parseTokenStream(tokenStream) {
       if (match('KW_END')) {
         const nextToken = tokenTypes[i + 1];
         const nextType = toType(nextToken);
-        const nextLex = (typeof nextToken === 'object' && nextToken.lexeme) 
-          ? nextToken.lexeme.toLowerCase() 
+        const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
+          ? nextToken.lexeme.toLowerCase()
           : '';
-        
+
         // Only break if next is 'for' keyword
         if (nextType === 'KW_L' && nextLex === 'for') {
           break;
         }
       }
-      
+
       if (match('DEL_RBRACE')) {
         break;
       }
-      
+
       const stmt = parseStatement();
       if (stmt) body.push(stmt);
     }
-    
+
     // Handle closing braces/keywords
     if (match('DEL_RBRACE')) advance();
     if (match('KW_END')) advance();
     if (match('KW_L')) advance();
-    
+
     return {
       type: 'FOR_STMT',
       iteratorToken,
@@ -601,13 +681,13 @@ export function parseTokenStream(tokenStream) {
 
   const parseWhileLoop = () => {
     advance(); // KW_L (while keyword)
-    
+
     if (match('DEL_LPAR')) advance();
     const condition = parseExpression();
     if (match('DEL_RPAR')) advance();
-    
+
     if (match('DEL_LBRACE')) advance();
-    
+
     const body = [];
     // Parse body until we hit 'end while'
     while (i < tokenTypes.length) {
@@ -615,30 +695,30 @@ export function parseTokenStream(tokenStream) {
       if (match('KW_END')) {
         const nextToken = tokenTypes[i + 1];
         const nextType = toType(nextToken);
-        const nextLex = (typeof nextToken === 'object' && nextToken.lexeme) 
-          ? nextToken.lexeme.toLowerCase() 
+        const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
+          ? nextToken.lexeme.toLowerCase()
           : '';
-        
+
         // Only break if next is 'while' keyword
         if (nextType === 'KW_L' && nextLex === 'while') {
           break;
         }
       }
-      
+
       if (match('DEL_RBRACE')) {
         break;
       }
-      
+
       const stmt = parseStatement();
       if (stmt) body.push(stmt);
     }
-    
+
     if (match('DEL_RBRACE')) advance();
-    
+
     // Consume closing 'end while'
     if (match('KW_END')) advance();
     if (match('KW_L')) advance();
-    
+
     return {
       type: 'WHILE_STMT',
       condition,
@@ -648,45 +728,45 @@ export function parseTokenStream(tokenStream) {
 
   const parseDoWhileLoop = () => {
     advance(); // KW_L (do keyword)
-    
+
     if (match('DEL_LBRACE')) advance();
-    
+
     const body = [];
     // Parse body until we hit 'while'
     while (i < tokenTypes.length) {
       // Check for 'while' keyword that closes the do block
       if (match('KW_L')) {
         const currentToken = peekToken();
-        const currentLex = (typeof currentToken === 'object' && currentToken.lexeme) 
-          ? currentToken.lexeme.toLowerCase() 
+        const currentLex = (typeof currentToken === 'object' && currentToken.lexeme)
+          ? currentToken.lexeme.toLowerCase()
           : '';
-        
+
         if (currentLex === 'while') {
           break; // End of body, now parse while condition
         }
       }
-      
+
       if (match('DEL_RBRACE')) {
         break;
       }
-      
+
       const stmt = parseStatement();
       if (stmt) body.push(stmt);
     }
-    
+
     if (match('DEL_RBRACE')) advance();
-    
+
     // Parse while condition
     if (match('KW_L')) advance(); // WHILE keyword
-    
+
     if (match('DEL_LPAR')) advance();
     const condition = parseExpression();
     if (match('DEL_RPAR')) advance();
-    
+
     // Consume closing 'end do'
     if (match('KW_END')) advance();
     if (match('KW_L')) advance();
-    
+
     return {
       type: 'DO_WHILE_STMT',
       body,
@@ -696,22 +776,30 @@ export function parseTokenStream(tokenStream) {
 
   const parseFunctionDef = () => {
     const funcToken = advanceToken(); // function keyword (KW_P)
-    
+
     const returnTypeToken = match('KW_T') ? advanceToken() : null;
     const returnType = returnTypeToken || 'VOID';
-    
+
     const nameToken = match('ID') ? advanceToken() : null;
     const name = nameToken || 'unknown';
-    
+
+    if (!nameToken) {
+      throw new Error('Invalid function definition: missing function name');
+    }
+
+    if (!match('DEL_LPAR')) {
+      throw new Error(`Invalid function definition for '${typeof nameToken === 'object' ? nameToken.lexeme : nameToken}': expected (parameters)`);
+    }
+
     if (match('DEL_LPAR')) advance();
-    
+
     const params = [];
     while (!match('DEL_RPAR') && i < tokenTypes.length) {
       if (match('KW_T')) {
         const typeToken = advanceToken();
         const pNameToken = match('ID') ? advanceToken() : null;
         params.push({ typeToken, nameToken: pNameToken });
-        
+
         if (match('DEL_COMMA')) {
           advance();
         } else {
@@ -721,11 +809,11 @@ export function parseTokenStream(tokenStream) {
         break;
       }
     }
-    
+
     if (match('DEL_RPAR')) advance();
-    
+
     if (match('DEL_LBRACE')) advance();
-    
+
     const body = [];
     // Parse body until we hit 'end function'
     while (i < tokenTypes.length) {
@@ -736,27 +824,27 @@ export function parseTokenStream(tokenStream) {
         const nextLex = (typeof nextToken === 'object' && nextToken.lexeme)
           ? nextToken.lexeme.toLowerCase()
           : '';
-        
+
         // Only break if next is 'function' keyword
         if (nextType === 'KW_P' && nextLex === 'function') {
           break;
         }
       }
-      
+
       if (match('DEL_RBRACE')) {
         break;
       }
-      
+
       const stmt = parseStatement();
       if (stmt) body.push(stmt);
     }
-    
+
     if (match('DEL_RBRACE')) advance();
-    
+
     // Consume 'end function' terminator
     if (match('KW_END')) advance();
     if (match('KW_P')) advance();
-    
+
     return {
       type: 'FUNCTION_DEF',
       funcToken,
@@ -771,12 +859,12 @@ export function parseTokenStream(tokenStream) {
 
   const parseReturn = () => {
     advanceToken(); // KW_R (return keyword)
-    
+
     let value = null;
     if (!match('KW_END', 'KW_P', 'KW_C', 'KW_L', 'KW_R') && i < tokenTypes.length) {
       value = parseExpression();
     }
-    
+
     return {
       type: 'RETURN_STMT',
       value
@@ -797,85 +885,106 @@ export function parseTokenStream(tokenStream) {
 
   const parseLogicalOr = () => {
     let left = parseLogicalAnd();
-    
+
     while (match('OP_LOG')) {
       const op = advanceToken();
       const right = parseLogicalAnd();
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseLogicalAnd = () => {
     let left = parseEquality();
-    
+
     while (match('OP_LOG')) {
       const op = advanceToken();
       const right = parseEquality();
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseEquality = () => {
     let left = parseRelational();
-    
+
     while (match('OP_REL')) {
       const op = advanceToken();
       const right = parseRelational();
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseRelational = () => {
     let left = parseAdditive();
-    
+
     while (match('OP_REL')) {
       const op = advanceToken();
       const right = parseAdditive();
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseAdditive = () => {
     let left = parseMultiplicative();
-    
+
     while (match('OP_AR')) {
       const op = advanceToken();
+      const opLex = typeof op === 'object' ? op.lexeme : op;
       const right = parseMultiplicative();
+      
+      // Check if right side is missing (incomplete binary expression)
+      if (!right || right.type === 'UNKNOWN') {
+        throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
+      }
+      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseMultiplicative = () => {
     let left = parseExponentiation();
-    
+
     while (match('OP_AR')) {
       const op = advanceToken();
+      const opLex = typeof op === 'object' ? op.lexeme : op;
       const right = parseExponentiation();
+      
+      // Check if right side is missing (incomplete binary expression)
+      if (!right || right.type === 'UNKNOWN') {
+        throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
+      }
+      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
   const parseExponentiation = () => {
     let left = parseUnary();
-    
+
     while (match('OP_AR')) {
       const op = advanceToken();
+      const opLex = typeof op === 'object' ? op.lexeme : op;
       const right = parseUnary();
+      
+      // Check if right side is missing (incomplete binary expression)
+      if (!right || right.type === 'UNKNOWN') {
+        throw new Error(`Incomplete expression: missing operand after '${opLex}' operator`);
+      }
+      
       left = { type: 'BINARY_EXPR', op, left, right };
     }
-    
+
     return left;
   };
 
@@ -885,13 +994,13 @@ export function parseTokenStream(tokenStream) {
       const expr = parseUnary();
       return { type: 'UNARY_EXPR', op, expr };
     }
-    
+
     return parsePostfix();
   };
 
   const parsePostfix = () => {
     let expr = parsePrimary();
-    
+
     while (true) {
       if (match('DEL_LBRACK')) {
         advance();
@@ -906,12 +1015,16 @@ export function parseTokenStream(tokenStream) {
           if (match('DEL_COMMA')) advance();
         }
         if (match('DEL_RPAR')) advance();
-        expr = { type: 'FUNCTION_CALL', func: expr, args };
+        const calleeName = expr?.type === 'IDENTIFIER'
+          ? (typeof expr.name === 'object' ? expr.name.lexeme : expr.name)
+          : '';
+        const isBuiltin = calleeName && BUILTIN_FUNCTIONS.has(String(calleeName).toLowerCase());
+        expr = { type: 'FUNCTION_CALL', func: expr, args, isBuiltin };
       } else {
         break;
       }
     }
-    
+
     return expr;
   };
 
@@ -921,35 +1034,37 @@ export function parseTokenStream(tokenStream) {
       const value = advanceToken();
       return { type: 'NUMBER_LITERAL', value };
     }
-    
+
     if (match('DEC', 'DEC_LITERAL')) {
       const value = advanceToken();
       return { type: 'DECIMAL_LITERAL', value };
     }
-    
+
     if (match('STR', 'STR_LITERAL')) {
       const value = advanceToken();
       return { type: 'STRING_LITERAL', value };
     }
-    
+
     if (match('BOOL', 'BOOL_LITERAL')) {
       const value = advanceToken();
       return { type: 'BOOLEAN_LITERAL', value };
     }
-    
+
     // Identifier
     if (match('ID')) {
       const name = advanceToken();
       return { type: 'IDENTIFIER', name };
     }
-    
+
     // String Insertion (@var)
     if (match('SIS')) {
-      advance();
-      const variable = match('ID') ? advance() : 'unknown';
-      return { type: 'VAR_REFERENCE', name: variable };
+      const sisToken = advanceToken();
+      const lexeme = typeof sisToken === 'object' ? sisToken.lexeme : sisToken;
+      // Extract variable name by removing the @ prefix
+      const varName = String(lexeme).startsWith('@') ? String(lexeme).slice(1) : lexeme;
+      return { type: 'VAR_REFERENCE', name: varName };
     }
-    
+
     // Array literal
     if (match('DEL_LBRACK')) {
       advance();
@@ -958,18 +1073,28 @@ export function parseTokenStream(tokenStream) {
         elements.push(parseExpression());
         if (match('DEL_COMMA')) advance();
       }
+      if (!match('DEL_RBRACK')) {
+        const found = peek();
+        const error = `Mismatched delimiters in array: expected ], got ${found || 'end of input'}`;
+        throw new Error(error);
+      }
       if (match('DEL_RBRACK')) advance();
       return { type: 'ARRAY_LITERAL', elements };
     }
-    
+
     // Parenthesized expression
     if (match('DEL_LPAR')) {
       advance();
       const expr = parseExpression();
+      if (!match('DEL_RPAR')) {
+        const found = peek();
+        const error = `Unmatched parentheses: expected ), got ${found || 'end of input'}`;
+        throw new Error(error);
+      }
       if (match('DEL_RPAR')) advance();
       return expr;
     }
-    
+
     // Fallback for unknown tokens
     const unknown = advance();
     return { type: 'UNKNOWN', token: unknown };
@@ -977,9 +1102,20 @@ export function parseTokenStream(tokenStream) {
 
   try {
     const ast = parseProgram();
+    
+    // Run semantic analysis (symbol table validation)
+    const semanticErrors = [];
+    if (ast && ast.type === 'PROGRAM') {
+      semanticErrors.push(...performSemanticAnalysis(ast));
+    }
+    
+    // Combine syntax and semantic errors
+    const allErrors = [...errors, ...semanticErrors];
+    
+    // Only return AST if there are no errors
     return {
-      ast,
-      errors,
+      ast: allErrors.length > 0 ? null : ast,
+      errors: allErrors,
       tokenCount: tokenTypes.length
     };
   } catch (err) {
@@ -990,7 +1126,122 @@ export function parseTokenStream(tokenStream) {
       tokenCount: tokenTypes.length
     };
   }
+
+  // Semantic analysis: track variable declarations and check for use-before-declare
+  function performSemanticAnalysis(ast) {
+    const semanticErrors = [];
+    const symbolTable = new Set();
+    
+    // Define built-in function signatures (name -> argument count)
+    const builtinFunctions = {
+      'sum': { args: 1, description: 'array' },
+      'median': { args: 1, description: 'array' },
+      'mode': { args: 1, description: 'array' },
+      'average': { args: 1, description: 'array' },
+      'iseven': { args: 1, description: 'number' },
+      'isodd': { args: 1, description: 'number' }
+    };
+    
+    const walkNode = (node, inDeclaration = false) => {
+      if (!node) return;
+      
+      switch (node.type) {
+        case 'FUNCTION_CALL': {
+          // Validate built-in function calls
+          if (node.isBuiltin) {
+            const funcNameObj = node.func?.name;
+            const funcName = (typeof funcNameObj === 'object' ? funcNameObj.lexeme : funcNameObj || '').toLowerCase();
+            const builtin = builtinFunctions[funcName];
+            
+            if (builtin) {
+              const argCount = (node.args || []).length;
+              if (argCount !== builtin.args) {
+                semanticErrors.push(`Built-in function '${funcName}' expects ${builtin.args} argument(s) (${builtin.description}), got ${argCount}`);
+              }
+            }
+          }
+          // Check function arguments
+          (node.args || []).forEach(arg => walkNode(arg));
+          break;
+        }
+        case 'DECLARATION': {
+          // Record all declared variables
+          (node.declarations || []).forEach(decl => {
+            const varName = decl.name || (typeof decl.nameToken === 'object' ? decl.nameToken.lexeme : '');
+            if (varName) symbolTable.add(varName);
+            // Check expressions in initializers
+            if (decl.value) walkNode(decl.value, true);
+          });
+          break;
+        }
+        case 'IDENTIFIER': {
+          // Check if identifier is declared before use
+          const idName = typeof node.name === 'object' ? node.name.lexeme : node.name;
+          if (idName && !symbolTable.has(idName) && !inDeclaration) {
+            semanticErrors.push(`Variable '${idName}' used before declaration`);
+          }
+          break;
+        }
+        case 'VAR_REFERENCE': {
+          // Check if variable reference is declared
+          const varName = node.name;
+          if (varName && !symbolTable.has(varName)) {
+            semanticErrors.push(`Variable '@${varName}' used but never declared`);
+          }
+          break;
+        }
+        case 'IF_STMT':
+        case 'WHILE_STMT':
+        case 'FOR_STMT':
+        case 'COND_STATEMENT': {
+          // Check condition expressions
+          if (node.condition) walkNode(node.condition);
+          (node.body || []).forEach(stmt => walkNode(stmt));
+          if (node.elseBody) node.elseBody.forEach(stmt => walkNode(stmt));
+          break;
+        }
+        case 'BINARY_EXPR': {
+          walkNode(node.left);
+          walkNode(node.right);
+          break;
+        }
+        case 'UNARY_EXPR': {
+          walkNode(node.expr);
+          break;
+        }
+        case 'ARRAY_ACCESS': {
+          walkNode(node.array);
+          walkNode(node.index);
+          break;
+        }
+        case 'PROGRAM': {
+          (node.decls || []).forEach(decl => walkNode(decl));
+          break;
+        }
+        case 'ASSIGNMENT':
+        case 'ECHO_STMT':
+        case 'INPUT_STMT':
+        case 'RETURN_STMT':
+        case 'BREAK_STMT':
+        case 'CONTINUE_STMT':
+        case 'FUNCTION_DEF': {
+          // Handle various statement types
+          if (node.value) walkNode(node.value);
+          if (node.args) node.args.forEach(arg => walkNode(arg));
+          if (node.body) node.body.forEach(stmt => walkNode(stmt));
+          if (node.condition) walkNode(node.condition);
+          break;
+        }
+      }
+    };
+    
+    walkNode(ast);
+    return semanticErrors;
+  }
+
+
 }
+
 
 // Pretty-print AST
 export function indentAst(node) {
@@ -1029,26 +1280,35 @@ export function indentAst(node) {
 
   const formatExpr = (expr) => {
     if (!expr) return '';
-    
+
     switch (expr.type) {
       case 'IDENTIFIER': {
         const nameLex = typeof expr.name === 'object' ? (expr.name.lexeme ?? '') : (expr.name ?? expr.lexeme ?? '');
-        return `IDENTIFIER ${nameLex}`;
+        return `ID ${nameLex}`;
       }
-      case 'NUMBER_LITERAL': 
+      case 'NUMBER_LITERAL':
         return `NUM ${getLexeme(expr.value)}`;
-      case 'DECIMAL_LITERAL': 
+      case 'DECIMAL_LITERAL':
         return `DEC ${getLexeme(expr.value)}`;
-      case 'STRING_LITERAL': 
+      case 'STRING_LITERAL':
         return `STR ${getLexeme(expr.value)}`;
-      case 'BOOLEAN_LITERAL': 
+      case 'BOOLEAN_LITERAL':
         return `BOOL ${getLexeme(expr.value)}`;
+      case 'VAR_REFERENCE': {
+        const varName = typeof expr.name === 'object' ? (expr.name.lexeme ?? expr.name) : expr.name;
+        return `VAR_REFERENCE ${varName}`;
+      }
+      case 'ARRAY_LITERAL': {
+        const elems = (expr.elements || []).map(e => formatExpr(e)).join(', ');
+        return `ARRAY_LITERAL(${elems})`;
+      }
       case 'FUNCTION_CALL': {
         const funcName = expr.func?.type === 'IDENTIFIER'
           ? formatExpr(expr.func)
           : formatExpr(expr.func);
         const argsStr = (expr.args || []).map(a => formatExpr(a)).join(', ');
-        return `FUNCTION_CALL ${funcName.replace('IDENTIFIER ', '')}(${argsStr})`;
+        const prefix = expr.isBuiltin ? 'BUILTIN ' : '';
+        return `FUNCTION_CALL ${prefix}${funcName.replace('ID ', '')}(${argsStr})`;
       }
       case 'BINARY_EXPR': {
         const left = formatExpr(expr.left);
@@ -1061,7 +1321,7 @@ export function indentAst(node) {
         const opStr = getLexeme(expr.op);
         return `${opStr}(${right})`;
       }
-      default: 
+      default:
         return expr.type || '';
     }
   };
@@ -1189,7 +1449,7 @@ export function indentAst(node) {
         lines.push(pad + 'CON_STATEMENT');
         lines.push(IND.repeat(depth + 1) + 'SWITCH_STATEMENT');
         lines.push(IND.repeat(depth + 2) + 'EXPRESSION ' + formatExpr(n.expr));
-        
+
         // Format cases
         (n.cases || []).forEach(caseItem => {
           lines.push(IND.repeat(depth + 2) + 'CASE');
@@ -1200,7 +1460,7 @@ export function indentAst(node) {
             lines.push(...walk(stmt, depth + 5));
           });
         });
-        
+
         // Format default
         if (n.defaultBody) {
           lines.push(IND.repeat(depth + 2) + 'DEFAULT');
@@ -1237,13 +1497,13 @@ export function indentAst(node) {
       case 'FOR_STMT': {
         lines.push(pad + 'LOOP_STATEMENT');
         lines.push(IND.repeat(depth + 1) + 'FOR_STATEMENT');
-        
+
         // Format iterator properly
-        const iterLex = typeof n.iterator === 'object' 
+        const iterLex = typeof n.iterator === 'object'
           ? (n.iterator.lexeme || n.iterator.type || '')
           : (n.iterator || '');
         lines.push(IND.repeat(depth + 2) + 'ITERATOR ID ' + iterLex);
-        
+
         lines.push(IND.repeat(depth + 2) + 'START ' + formatExpr(n.start));
         lines.push(IND.repeat(depth + 2) + 'END ' + formatExpr(n.end));
         if (n.step) {
